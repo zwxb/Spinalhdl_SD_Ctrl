@@ -134,6 +134,7 @@ case class WishboneSdioMasterCtrl() extends Component {
   val SDCmd12 = 0x0C00
   val SDCmd17 = 0x1100
   val SDCmd24 = 0x1800
+  val SDCmd25 = 0x1900
   val SDCmd55 = 0x3700
   val SDACmd6 = 0x0600
   val SDACmd41 = 0x2900
@@ -557,9 +558,9 @@ case class WishboneSdioMasterCtrl() extends Component {
       //        whenCompleted(goto(DmaAddr))
       //      }
       val DmaAddr: State = new StateFsm(SSandCoreCmd(CoreDmaAddr, 0x0000)) {
-        whenCompleted(goto(SSDCmd24))
+        whenCompleted(goto(SSDCmd25))
       }
-      val SSDCmd24: State = new StateFsm(SSandCmd(SDCmd24, CICE | TxDataTransfer | CRCE | RSP_48, 0)) {
+      val SSDCmd25: State = new StateFsm(SSandCmd(SDCmd25 | CICE | TxDataTransfer | CRCE | RSP_48, 0, 0)) {
         whenCompleted(goto(WrData))
       }
       //      //参考控制器手册 BD_TX 先写入SysAddr
@@ -581,8 +582,8 @@ case class WishboneSdioMasterCtrl() extends Component {
             io.Swb.ACK := True
             io.Swb.DAT_MISO := TxCnt.asBits.resize(32)
           }
-          when(TxCnt >= 127) {
-            goto(SSDCmd24)
+          when(TxCnt >= 512) {
+            goto(BdIsr)
           } otherwise {
             goto(WrData)
           }
