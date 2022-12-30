@@ -1,6 +1,6 @@
 // Generator : SpinalHDL v1.8.0    git head : 4e3563a282582b41f4eaafc503787757251d23ea
 // Component : WishboneSdioMasterCtrl
-// Git hash  : b15761c532278d356c9deb1e878f5551b35a5aab
+// Git hash  : 2e7a17ac222846154205c2955591dc238a65fea9
 
 `timescale 1ns/1ps
 
@@ -8542,7 +8542,7 @@ module WishboneSdioMasterCtrl (
   end
 
   assign fsm_SCoreSandData_fsm_DmaAddr_fsm_wantKill = 1'b0; // @[StateMachine.scala 153:18]
-  assign _zz_Mwb_DAT_MOSI_22 = 13'h1959; // @[Expression.scala 2342:18]
+  assign _zz_Mwb_DAT_MOSI_22 = 13'h1859; // @[Expression.scala 2342:18]
   always @(*) begin
     fsm_SCoreSandData_fsm_SSDCmd25_fsm_wantExit = 1'b0; // @[StateMachine.scala 151:28]
     case(fsm_SCoreSandData_fsm_SSDCmd25_fsm_stateReg)
@@ -10378,7 +10378,7 @@ module WishboneSdioMasterCtrl (
       end
       fsm_SCoreSandData_fsm_enumDef_DmaAddr : begin
         if(fsm_SCoreSandData_fsm_DmaAddr_fsm_wantExit) begin
-          fsm_SCoreSandData_fsm_stateNext = fsm_SCoreSandData_fsm_enumDef_SSDCmd25; // @[Enum.scala 148:67]
+          fsm_SCoreSandData_fsm_stateNext = fsm_SCoreSandData_fsm_enumDef_WrData; // @[Enum.scala 148:67]
         end
       end
       fsm_SCoreSandData_fsm_enumDef_SSDCmd25 : begin
@@ -10426,7 +10426,7 @@ module WishboneSdioMasterCtrl (
   end
 
   assign when_WbSdCtrl_l580 = (((Swb_WE == 1'b0) && (Swb_CYC == 1'b1)) && (Swb_STB == 1'b1)); // @[BaseType.scala 305:24]
-  assign when_WbSdCtrl_l585 = (32'h00000200 <= fsm_SCoreSandData_fsm_TxCnt); // @[BaseType.scala 305:24]
+  assign when_WbSdCtrl_l585 = (32'h00000080 <= fsm_SCoreSandData_fsm_TxCnt); // @[BaseType.scala 305:24]
   assign when_State_l238_11 = (_zz_when_State_l238_11 <= 5'h01); // @[BaseType.scala 305:24]
   assign when_WbSdCtrl_l607 = (Mwb_ACK == 1'b1); // @[BaseType.scala 305:24]
   assign when_WbSdCtrl_l616 = (BdIsrStatus[2] == 1'b0); // @[BaseType.scala 305:24]

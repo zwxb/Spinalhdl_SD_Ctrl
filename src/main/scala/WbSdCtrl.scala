@@ -558,9 +558,9 @@ case class WishboneSdioMasterCtrl() extends Component {
       //        whenCompleted(goto(DmaAddr))
       //      }
       val DmaAddr: State = new StateFsm(SSandCoreCmd(CoreDmaAddr, 0x0000)) {
-        whenCompleted(goto(SSDCmd25))
+        whenCompleted(goto(WrData))
       }
-      val SSDCmd25: State = new StateFsm(SSandCmd(SDCmd25 | CICE | TxDataTransfer | CRCE | RSP_48, 0, 0)) {
+      val SSDCmd25: State = new StateFsm(SSandCmd(SDCmd24 | CICE | TxDataTransfer | CRCE | RSP_48, 0, 0)) {
         whenCompleted(goto(WrData))
       }
       //      //参考控制器手册 BD_TX 先写入SysAddr
@@ -582,7 +582,7 @@ case class WishboneSdioMasterCtrl() extends Component {
             io.Swb.ACK := True
             io.Swb.DAT_MISO := TxCnt.asBits.resize(32)
           }
-          when(TxCnt >= 512) {
+          when(TxCnt >= 128) {
             goto(BdIsr)
           } otherwise {
             goto(WrData)
