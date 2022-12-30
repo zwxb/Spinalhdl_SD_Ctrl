@@ -581,15 +581,15 @@ case class WishboneSdioMasterCtrl() extends Component {
             io.Swb.ACK := True
             io.Swb.DAT_MISO := TxCnt.asBits.resize(32)
           }
-          when(TxCnt >= 1024) {
-            goto(BdIsr)
+          when(TxCnt >= 127) {
+            goto(SSDCmd24)
           } otherwise {
             goto(WrData)
           }
         }
-        //        onExit {
-        //          TxCnt := 0
-        //        }
+        onExit {
+          TxCnt := 0
+        }
       }
       val WrDataDelay: State = new StateDelay(30) {
         whenCompleted(goto(WrData))
