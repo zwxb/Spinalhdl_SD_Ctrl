@@ -132,6 +132,7 @@ case class WishboneSdioMasterCtrl() extends Component {
   val SDCmd7 = 0x0700
   val SDCmd9 = 0x0900
   val SDCmd12 = 0x0C00
+  val SDCmd16 = 0x1000
   val SDCmd17 = 0x1100
   val SDCmd24 = 0x1800
   val SDCmd25 = 0x1900
@@ -165,6 +166,9 @@ case class WishboneSdioMasterCtrl() extends Component {
    * 测试自加基数参数
    * */
   val TestParamCnt = 0x55555555
+  val TestBlkNum = 128
+  val TestSelfCnt =  TestBlkNum * 512
+
 
 
   /**
@@ -226,7 +230,7 @@ case class WishboneSdioMasterCtrl() extends Component {
       }
     }
     //控制器设置 命令超时时间
-    val SCoreCmdTimeOut: State = new StateFsm(SSandCoreCmd(CoreCmdTimeOut, 0x2FF)) {
+    val SCoreCmdTimeOut: State = new StateFsm(SSandCoreCmd(CoreCmdTimeOut, 0x02FF)) {
       whenCompleted {
         goto(SCoredataTimeOut)
       }
@@ -247,12 +251,12 @@ case class WishboneSdioMasterCtrl() extends Component {
         goto(SCoreCmdIsrEn)
       }
     }
-    val SCoreCmdIsrEn: State = new StateFsm(SSandCoreCmd(CoreCmdIsrEn, 0x4F)) {
+    val SCoreCmdIsrEn: State = new StateFsm(SSandCoreCmd(CoreCmdIsrEn, 0x1F)) {
       whenCompleted {
         goto(SCoreDataIsrEn)
       }
     }
-    val SCoreDataIsrEn: State = new StateFsm(SSandCoreCmd(CoreDataIsrEn, 0x4F)) {
+    val SCoreDataIsrEn: State = new StateFsm(SSandCoreCmd(CoreDataIsrEn, 0x1F)) {
       whenCompleted {
         goto(SCoreDataWithSet)
       }
@@ -343,8 +347,11 @@ case class WishboneSdioMasterCtrl() extends Component {
     val SSDCmd7: State = new StateFsm(SSandCmd(SDCmd7 | CRCE | CICE | RSP_48 | TxDataTransfer, (CmdResponseReg3).asUInt, 1)) {
       whenCompleted {
         RSPCardStatus := CmdResponseReg(12 downto 9)
-        goto(SSDcmd55_2)
+        goto(SSDCmd16)
       }
+    }
+    val SSDCmd16: State = new StateFsm(SSandCmd(SDCmd16 | CICE | CRCE | RSP_48, 0x0200, 0)) {
+      whenCompleted(goto(SSDcmd55_2))
     }
     val SSDcmd55_2: State = new StateFsm(SSandCmd(SDCmd55 | CICE | CRCE | RSP_48, (CmdResponseReg3).asUInt, 0)) {
       whenCompleted {
@@ -361,10 +368,10 @@ case class WishboneSdioMasterCtrl() extends Component {
     //      whenCompleted(goto(SCoreRxTxBdNum))
     //    }
     //设置BD中传输blk 块数
-    val SCoreBlkSize: State = new StateFsm(SSandCoreCmd(CoreBlkSize, 512)) {
+    val SCoreBlkSize: State = new StateFsm(SSandCoreCmd(CoreBlkSize, 511)) {
       whenCompleted(goto(SCoreBlkNum))
     }
-    val SCoreBlkNum: State = new StateFsm(SSandCoreCmd(CoreBlkCnt, 10)) {
+    val SCoreBlkNum: State = new StateFsm(SSandCoreCmd(CoreBlkCnt, TestBlkNum)) {
       whenCompleted {
         goto(SCoreSandData)
       }
@@ -475,16 +482,19 @@ case class WishboneSdioMasterCtrl() extends Component {
       }
       val SCoreDelay: State = new StateDelay(500) {
         whenCompleted {
-          goto(SCoreNormalIsrRd)
+          goto(SCoreWaitCmdIsr)
         }
       }
-      //      val SCoreWaitCmdIsr: State = new State {
-      //        whenIsActive {
-      //          when(io.ISRCmd === True) {
-      //            goto(SCoreDelay)
-      //          }
-      //        }
-      //      }
+      val SCoreWaitCmdIsr: State = new State {
+        whenIsActive {
+          when(io.ISRCmd === True) {
+            goto(SCoreClearCmdIsr)
+          }
+        }
+      }
+      val SCoreClearCmdIsr: State = new StateFsm(SSandCoreCmd(CoreCmdIsrStatus, 0x00)) {
+        whenCompleted(goto(SCoreNormalIsrRd))
+      }
       //发送读取传输状态
       val SCoreNormalIsrRd: State = new State {
         whenIsActive {
@@ -558,9 +568,9 @@ case class WishboneSdioMasterCtrl() extends Component {
       //        whenCompleted(goto(DmaAddr))
       //      }
       val DmaAddr: State = new StateFsm(SSandCoreCmd(CoreDmaAddr, 0x0000)) {
-        whenCompleted(goto(WrData))
+        whenCompleted(goto(SSDCmd25))
       }
-      val SSDCmd25: State = new StateFsm(SSandCmd(SDCmd24 | CICE | TxDataTransfer | CRCE | RSP_48, 0, 0)) {
+      val SSDCmd25: State = new StateFsm(SSandCmd(SDCmd25 | CICE | TxDataTransfer | CRCE | RSP_48, 0, 0)) {
         whenCompleted(goto(WrData))
       }
       //      //参考控制器手册 BD_TX 先写入SysAddr
@@ -582,19 +592,33 @@ case class WishboneSdioMasterCtrl() extends Component {
             io.Swb.ACK := True
             io.Swb.DAT_MISO := TxCnt.asBits.resize(32)
           }
-          when(TxCnt >= 128) {
+          when(TxCnt >= TestSelfCnt) {
+            goto(CheckIsrDone)
+          } elsewhen (TxCnt >= TestSelfCnt) {
             goto(BdIsr)
           } otherwise {
             goto(WrData)
           }
         }
-        onExit {
-          TxCnt := 0
+      }
+      val WrDataDelay: State = new StateDelay(500) {
+        whenCompleted(goto(CheckIsrDone))
+      }
+      val CheckIsrDone: State = new State {
+        whenIsActive {
+          when(io.ISRData === True) {
+            goto(ClearIsrData)
+          }
         }
       }
-      val WrDataDelay: State = new StateDelay(30) {
-        whenCompleted(goto(WrData))
+      val ClearIsrData: State = new StateFsm(SSandCoreCmd(CoreDataISrStatus, 0)) {
+        whenCompleted(goto(SSDCmd12))
       }
+
+      val SSDCmd12: State = new StateFsm(SSandCmd(SDCmd12, 0, 0)) {
+        whenCompleted(goto(SSDCmd25))
+      }
+
 
       val BdIsr: State = new State {
         whenIsActive {
