@@ -35,6 +35,21 @@ case class WishboneSdioMasterCtrl() extends Component {
     val RSPReg2 = out Bits (32 bits)
     val RSPReg3 = out Bits (32 bits)
     val Rddata = out Bits (32 bits)
+    /** SD读写操作
+     * */
+    val SDWrOrRd = in Bool()
+    /**
+     * SD连续读写块数
+     * */
+    val SDWrOrRdBlkNum = in(UInt(32 bits))
+    /**
+     * SD连续读写起始地址
+     * */
+    val SDWrOrRdAddr = in(UInt(32 bits))
+    /**
+     * SD读写状态
+     * */
+    val SDWrOrRdStatus = out(UInt(32 bits))
     /**
      * 中断指示
      * */
@@ -57,8 +72,10 @@ case class WishboneSdioMasterCtrl() extends Component {
   val GetRdData = Reg(Bits(32 bits)) init (0)
   //  val TestSystemAddr = Reg(UInt(32 bits)) init(0)
   val TestBclkAddr = Reg(UInt(32 bits)) init (0)
+  val Cmd7Config = Reg(UInt(32 bits)) init (0)
+  val TotalBtyesNum = Reg(UInt(32 bits)) init (0)
 
-
+  io.SDWrOrRdStatus := 0
   io.Mwb.clearAll()
   io.Swb.clearAll()
 
@@ -134,6 +151,7 @@ case class WishboneSdioMasterCtrl() extends Component {
   val SDCmd12 = 0x0C00
   val SDCmd16 = 0x1000
   val SDCmd17 = 0x1100
+  val SDCmd18 = 0x1200
   val SDCmd24 = 0x1800
   val SDCmd25 = 0x1900
   val SDCmd55 = 0x3700
@@ -144,7 +162,7 @@ case class WishboneSdioMasterCtrl() extends Component {
    * Reg CoreCmd 0x04的配置参数
    * */
   val NoDataTransfer = 0x00
-  val RdDataTransfer = 0x20
+  val RxDataTransfer = 0x20
   val TxDataTransfer = 0x40
   val CICE = 0x10
   val CRCE = 0x08
@@ -166,10 +184,10 @@ case class WishboneSdioMasterCtrl() extends Component {
    * 测试自加基数参数
    * */
   val TestParamCnt = 0x55555555
-  val TestBlkNum = 128
-  val TestSelfCnt =  TestBlkNum * 512
+  val TestBlkNum = 16
+  val TestSelfCnt = TestBlkNum * 512
 
-
+  TotalBtyesNum := io.SDWrOrRdBlkNum |<< 9
 
   /**
    * wishbone 主 总线写时许
@@ -223,52 +241,51 @@ case class WishboneSdioMasterCtrl() extends Component {
     /**
      * Winshbone控制器的控制流程
      * */
-    //复位控制器
+    //控制器 复位
     val SCoreRest: State = new StateFsm(SSandCoreCmd(CoreSoftWareRst, 1)) {
       whenCompleted {
         goto(SCoreCmdTimeOut)
       }
     }
-    //控制器设置 命令超时时间
-    val SCoreCmdTimeOut: State = new StateFsm(SSandCoreCmd(CoreCmdTimeOut, 0x02FF)) {
+    //控制器 命令超时时间设置
+    val SCoreCmdTimeOut: State = new StateFsm(SSandCoreCmd(CoreCmdTimeOut, 0)) {
       whenCompleted {
         goto(SCoredataTimeOut)
       }
     }
-    //控制器设置 数据超时时间
+    //控制器 数据超时时间设置
     val SCoredataTimeOut: State = new StateFsm(SSandCoreCmd(CoreDataTimeOut, 0)) {
       whenCompleted(goto(SCoreClkDivider))
     }
-    //控制器设置时钟分频
+    //控制器 时钟分频设置
     val SCoreClkDivider: State = new StateFsm(SSandCoreCmd(CoreClkDivider, 0)) {
       whenCompleted {
         goto(SCoreStart)
       }
     }
-    //启动控制器开始工作
+    //控制器 启动
     val SCoreStart: State = new StateFsm(SSandCoreCmd(CoreSoftWareRst, 0)) {
       whenCompleted {
         goto(SCoreCmdIsrEn)
       }
     }
+    //控制器 命令中断设置
     val SCoreCmdIsrEn: State = new StateFsm(SSandCoreCmd(CoreCmdIsrEn, 0x1F)) {
       whenCompleted {
         goto(SCoreDataIsrEn)
       }
     }
+    //控制器 数据中断设置
     val SCoreDataIsrEn: State = new StateFsm(SSandCoreCmd(CoreDataIsrEn, 0x1F)) {
       whenCompleted {
         goto(SCoreDataWithSet)
       }
     }
+    //控制器 SD数据位宽设置
     val SCoreDataWithSet: State = new StateFsm(SSandCoreCmd(CoreDataWidth, 0x01)) {
       whenCompleted(goto(SSDCmd0))
     }
 
-    //使能中断
-    //    val SCoreNormIsr: State = new StateFsm(SSandCoreCmd(CoreNormalIsrEn, 0x8001)) {
-    //      whenCompleted(goto(SSDCmd0))
-    //    }
     /**
      * SD卡初始化和识别流程
      * */
@@ -324,6 +341,7 @@ case class WishboneSdioMasterCtrl() extends Component {
 
       }
     }
+    //判断当前SD卡状态
     val SSDStby: State = new State {
       whenIsActive {
         //判断当前SD卡状态 是否为STBY
@@ -337,6 +355,17 @@ case class WishboneSdioMasterCtrl() extends Component {
     //发送cmd9命令 获取SD相关状态卡的块长度和卡容量
     val SSDCmd9: State = new StateFsm(SSandCmd(SDCmd9 | RSP_136, (CmdResponseReg3).asUInt, 1)) {
       whenCompleted {
+        goto(SSDWrOrRd)
+      }
+    }
+    //判断SD读写操作选择 0：写 1：读
+    val SSDWrOrRd: State = new State {
+      whenIsActive {
+        when(io.SDWrOrRd === False) {
+          Cmd7Config := SDCmd7 | CRCE | CICE | RSP_48 | TxDataTransfer
+        } otherwise {
+          Cmd7Config := SDCmd7 | CRCE | CICE | RSP_48 | RxDataTransfer
+        }
         goto(SSDCmd7)
       }
     }
@@ -344,15 +373,17 @@ case class WishboneSdioMasterCtrl() extends Component {
      * SD卡数据发送流程
      * */
     //发送cmd7命令 发送CMD7+RCA选中卡片, 发送CMD7+0不选中卡片，RCA是之前CMD3读取到的卡RCA
-    val SSDCmd7: State = new StateFsm(SSandCmd(SDCmd7 | CRCE | CICE | RSP_48 | TxDataTransfer, (CmdResponseReg3).asUInt, 1)) {
+    val SSDCmd7: State = new StateFsm(SSandCmd(Cmd7Config, (CmdResponseReg3).asUInt, 1)) {
       whenCompleted {
         RSPCardStatus := CmdResponseReg(12 downto 9)
         goto(SSDCmd16)
       }
     }
+    //发送cmd16命令 设置SD的块大小
     val SSDCmd16: State = new StateFsm(SSandCmd(SDCmd16 | CICE | CRCE | RSP_48, 0x0200, 0)) {
       whenCompleted(goto(SSDcmd55_2))
     }
+    //发送SD的cmd55命令 启动Acmd前必须前置55
     val SSDcmd55_2: State = new StateFsm(SSandCmd(SDCmd55 | CICE | CRCE | RSP_48, (CmdResponseReg3).asUInt, 0)) {
       whenCompleted {
         goto(SSDACmd6)
@@ -364,43 +395,33 @@ case class WishboneSdioMasterCtrl() extends Component {
         goto(SCoreBlkSize)
       }
     }
-    //    val SCoreCtrl: State = new StateFsm(SSandCoreCmd(CoreDataWidth, 1)) {
-    //      whenCompleted(goto(SCoreRxTxBdNum))
-    //    }
-    //设置BD中传输blk 块数
+    //设置BD中传输blk 块大小 注意需要 -1
     val SCoreBlkSize: State = new StateFsm(SSandCoreCmd(CoreBlkSize, 511)) {
       whenCompleted(goto(SCoreBlkNum))
     }
-    val SCoreBlkNum: State = new StateFsm(SSandCoreCmd(CoreBlkCnt, TestBlkNum)) {
+    //设置BD中传输blk的块数
+    val SCoreBlkNum: State = new StateFsm(SSandCoreCmd(CoreBlkCnt, io.SDWrOrRdBlkNum)) {
       whenCompleted {
-        goto(SCoreSandData)
+        when(io.SDWrOrRd === False) {
+          goto(SCoreSandData)
+        } otherwise {
+          goto(ScoreGetData)
+        }
       }
     }
-    //分析BD数量
-    //    val ScoreRxTxNum: State = new State {
-    //      whenIsActive {
-    //        when(GetRdData(7 downto 0).asUInt > 0) {
-    //          goto(SCoreSandData)
-    //        }
-    //      }
-    //    }
-    //SD数据 读
-    //    val SCoreGetData: State = new State {
-    //
-    //    }
     //SD数据 写
-    val SCoreSandData: State = new StateFsm(SSDCmdDataTx(0, TestBclkAddr)) {
+    val SCoreSandData: State = new StateFsm(SSDCmdDataTx(0, io.SDWrOrRdAddr)) {
       whenCompleted {
-        goto(SSDCmd7)
+        goto(SSDWrOrRd)
       }
     }
-    //自测地址自增
-    val SCoreAddrAdd: State = new State {
-      whenIsActive {
-        TestBclkAddr := TestBclkAddr + 1
-        goto(SCoreBlkNum)
+    //SD数据 读
+    val ScoreGetData: State = new StateFsm(SSDCmdDataRx(io.SDWrOrRdAddr)) {
+      whenCompleted {
+        goto(SSDWrOrRd)
       }
     }
+
 
     /** 嵌套状态机 发送控制器寄存器状态机 */
     def SSandCoreCmd(addr: UInt, data: UInt) = new StateMachine {
@@ -559,50 +580,30 @@ case class WishboneSdioMasterCtrl() extends Component {
     def SSDCmdDataTx(sysaddr: UInt, blockaddr: UInt) = new StateMachine {
 
       val TxCnt = Reg(UInt(32 bits)) init (0)
-
       val IDLE: State = new State with EntryPoint {
         whenIsActive(goto(DmaAddr))
       }
-      //使能数据中断状态
-      //      val EnDataIER: State = new StateFsm(SSandCoreCmd(CoreDataIsrEn, 0x0001)) {
-      //        whenCompleted(goto(DmaAddr))
-      //      }
       val DmaAddr: State = new StateFsm(SSandCoreCmd(CoreDmaAddr, 0x0000)) {
         whenCompleted(goto(SSDCmd25))
       }
       val SSDCmd25: State = new StateFsm(SSandCmd(SDCmd25 | CICE | TxDataTransfer | CRCE | RSP_48, 0, 0)) {
         whenCompleted(goto(WrData))
       }
-      //      //参考控制器手册 BD_TX 先写入SysAddr
-      //      val WrSysaddr: State = new StateFsm(SSandCoreCmd(CoreBdTx, sysaddr)) {
-      //        whenCompleted(goto(WrBlkaddr))
-      //      }
-      //      //参考控制器手册 BD_TX 先写入BlkAddr
-      //      val WrBlkaddr: State = new StateFsm(SSandCoreCmd(CoreBdTx, blockaddr)) {
-      //        whenCompleted(goto(WrData))
-      //        onExit(
-      //          TxCnt := 0
-      //        )
-      //      }
       //wishbone从接口 写入数据
       val WrData: State = new State {
         whenIsActive {
+          io.SDWrOrRdStatus := 1
           when(io.Swb.WE === False && io.Swb.CYC === True && io.Swb.STB === True) {
             TxCnt := TxCnt + 1
             io.Swb.ACK := True
             io.Swb.DAT_MISO := TxCnt.asBits.resize(32)
           }
-          when(TxCnt >= TestSelfCnt) {
+          when(TxCnt >= TotalBtyesNum) {
             goto(CheckIsrDone)
-          } elsewhen (TxCnt >= TestSelfCnt) {
-            goto(BdIsr)
           } otherwise {
             goto(WrData)
           }
         }
-      }
-      val WrDataDelay: State = new StateDelay(500) {
-        whenCompleted(goto(CheckIsrDone))
       }
       val CheckIsrDone: State = new State {
         whenIsActive {
@@ -614,36 +615,81 @@ case class WishboneSdioMasterCtrl() extends Component {
       val ClearIsrData: State = new StateFsm(SSandCoreCmd(CoreDataISrStatus, 0)) {
         whenCompleted(goto(SSDCmd12))
       }
-
       val SSDCmd12: State = new StateFsm(SSandCmd(SDCmd12, 0, 0)) {
-        whenCompleted(goto(SSDCmd25))
+        whenCompleted {
+          io.SDWrOrRdStatus := 0
+          exit()
+        }
       }
+      //      val BdIsr: State = new State {
+      //        whenIsActive {
+      //          MasterWishBoneRd(CoreDataISrStatus)
+      //          goto(BdIsrGet)
+      //        }
+      //      }
+      //      val BdIsrGet: State = new State {
+      //        whenIsActive {
+      //          when(io.Mwb.ACK === True) {
+      //            MasterWishBoneRd(CoreDataISrStatus)
+      //            goto(BdIsrCheck)
+      //          }
+      //        }
+      //      }
+      //      val BdIsrCheck: State = new State {
+      //        whenIsActive {
+      //          BdIsrStatus := io.Mwb.DAT_MISO
+      //          when(BdIsrStatus(2) === False) {
+      //            goto(BdIsr)
+      //          }
+      //          when((BdIsrStatus(2) === True)) {
+      //            exit()
+      //          }
+      //        }
+      //      }
+    }
 
+    /**
+     * 嵌套状态机 数据接受和查询是否发送完成
+     * */
+    def SSDCmdDataRx(BlkAddr: UInt) = new StateMachine {
 
-      val BdIsr: State = new State {
+      val RxCnt = Reg(UInt(32 bits)) init (0)
+      val RxData = Reg(Bits(32 bits))
+      val IDLE: State = new State with EntryPoint {
+        whenIsActive(goto(DmaAddr))
+      }
+      val DmaAddr: State = new StateFsm(SSandCoreCmd(CoreDmaAddr, BlkAddr)) {
+        whenCompleted(goto(SSDCmd18))
+      }
+      val SSDCmd18: State = new StateFsm(SSandCmd(SDCmd18 | CICE | RxDataTransfer | CRCE | RSP_48, 0, 0)) {
+        whenCompleted(goto(RdData))
+      }
+      val RdData: State = new State {
         whenIsActive {
-          MasterWishBoneRd(CoreDataISrStatus)
-          goto(BdIsrGet)
+          when(io.Swb.CYC === True && io.Swb.STB === True && io.Swb.WE === True) {
+            RxCnt := RxCnt + 1
+            io.Swb.ACK := True
+            RxData := io.Swb.DAT_MOSI
+          }
+          when(RxCnt >= TotalBtyesNum) {
+            goto(CheckIsrDone)
+          } otherwise {
+            goto(RdData)
+          }
         }
       }
-      val BdIsrGet: State = new State {
+      val CheckIsrDone: State = new State {
         whenIsActive {
-          when(io.Mwb.ACK === True) {
-            MasterWishBoneRd(CoreDataISrStatus)
-            goto(BdIsrCheck)
+          when(io.ISRData === True) {
+            goto(ClearIsrData)
           }
         }
       }
-      val BdIsrCheck: State = new State {
-        whenIsActive {
-          BdIsrStatus := io.Mwb.DAT_MISO
-          when(BdIsrStatus(2) === False) {
-            goto(BdIsr)
-          }
-          when((BdIsrStatus(2) === True)) {
-            exit()
-          }
-        }
+      val ClearIsrData: State = new StateFsm(SSandCoreCmd(CoreDataISrStatus, 0)) {
+        whenCompleted(goto(SSDCmd12))
+      }
+      val SSDCmd12: State = new StateFsm(SSandCmd(SDCmd12, 0, 0)) {
+        whenCompleted(exit())
       }
     }
 
