@@ -29,6 +29,15 @@ case class WishboneSdioMasterCtrl() extends Component {
      * 从wishbone接口
      * */
     val Swb = slave(Wishbone(WishboneMasterCtrl.getWishboneConfig))
+    /**
+     * Axi Stream 从接口 接收写入数据
+     * */
+    val SWrData = slave(Stream(Bits(32 bits)))
+    /**
+     * Axi Stream 主接口 发送读取数据
+     * */
+    val MRdData = master(Stream(Bits(32 bits)))
+
     /** 状态指示寄存器 */
     val RSPReg = out Bits (32 bits)
     val RSPReg41 = out Bits (32 bits)
@@ -64,7 +73,7 @@ case class WishboneSdioMasterCtrl() extends Component {
   val CmdResponseRegA41 = Reg(Bits(32 bits)) init (0)
   val CmdResponseReg2 = Reg(Bits(32 bits)) init (0)
   val CmdResponseReg3 = Reg(Bits(32 bits)) init (0)
-  val cmdResponseReg7 = Reg(Bits(32 bits)) init (0)
+  val CmdResponseReg7 = Reg(Bits(32 bits)) init (0)
   val BdIsrStatus = Reg(Bits(32 bits)) init (0)
   val RSPCardStatus = Reg(Bits(4 bits)) init (0)
   val FBTXNum = Reg(Bits(4 bits)) init (0)
@@ -75,9 +84,13 @@ case class WishboneSdioMasterCtrl() extends Component {
   val Cmd7Config = Reg(UInt(32 bits)) init (0)
   val TotalBtyesNum = Reg(UInt(32 bits)) init (0)
 
+  /** 避免锁存器的产生所有out输出初始为0 */
   io.SDWrOrRdStatus := 0
   io.Mwb.clearAll()
   io.Swb.clearAll()
+  io.SWrData.ready := False
+  io.MRdData.valid := False
+  io.MRdData.payload := 0
 
   /**
    * 读取SD卡回复的所有命令响应
@@ -595,8 +608,9 @@ case class WishboneSdioMasterCtrl() extends Component {
           io.SDWrOrRdStatus := 1
           when(io.Swb.WE === False && io.Swb.CYC === True && io.Swb.STB === True) {
             TxCnt := TxCnt + 1
-            io.Swb.ACK := True
-            io.Swb.DAT_MISO := TxCnt.asBits.resize(32)
+            io.Swb.ACK := io.SWrData.valid
+            io.Swb.DAT_MISO := io.SWrData.payload //TxCnt.asBits.resize(32)
+            io.SWrData.ready := True
           }
           when(TxCnt >= TotalBtyesNum) {
             goto(CheckIsrDone)
@@ -669,6 +683,8 @@ case class WishboneSdioMasterCtrl() extends Component {
           when(io.Swb.CYC === True && io.Swb.STB === True && io.Swb.WE === True) {
             RxCnt := RxCnt + 1
             io.Swb.ACK := True
+            io.MRdData.valid := True
+            io.MRdData.payload := io.Swb.DAT_MOSI
             RxData := io.Swb.DAT_MOSI
           }
           when(RxCnt >= TotalBtyesNum) {
@@ -699,8 +715,8 @@ case class WishboneSdioMasterCtrl() extends Component {
 /**
  * 主函数
  * */
-object Top {
-  def main(args: Array[String]) {
-    SpinalVerilog(new WishboneSdioMasterCtrl())
-  }
-}
+//object Top {
+//  def main(args: Array[String]) {
+//    SpinalVerilog(new WishboneSdioMasterCtrl())
+//  }
+//}
