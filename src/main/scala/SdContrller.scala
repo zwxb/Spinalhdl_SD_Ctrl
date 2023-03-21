@@ -6,6 +6,14 @@ import spinal.lib.bus.wishbone.{Wishbone, WishboneConfig}
 import spinal.lib.com.spi.WishboneSpiMasterCtrl
 import spinal.lib.{master, slave}
 
+case class ClkRstIface() extends Bundle{
+  val wb_clk_i = in Bool()
+  val wb_rst_i = in Bool()
+}
+
+
+
+
 case class SdCtlIface() extends Bundle {
   val wb_clk_i = in Bool()
   val wb_rst_i = in Bool()
@@ -20,7 +28,7 @@ case class SdCtlIface() extends Bundle {
   val wb_ack_o = out Bool()
   // WISHBONE master
   val m_wb_dat_o = out Bits (32 bits)
-  val m_wb_dat_i = out Bits (32 bits)
+  val m_wb_dat_i = in Bits (32 bits)
   val m_wb_adr_o = out Bits (32 bits)
   val m_wb_sel_o = out Bits (4 bits)
   val m_wb_we_o = out Bool()
@@ -33,18 +41,19 @@ case class SdCtlIface() extends Bundle {
   val sd_cmd_dat_i = in Bool()
   val sd_cmd_out_o = out Bool()
   val sd_cmd_oe_o = out Bool()
-  //card_detect,
   val sd_dat_dat_i = in Bits (4 bits)
   val sd_dat_out_o = out Bits (4 bits)
   val sd_dat_oe_o = out Bool()
   val sd_clk_o_pad = out Bool()
   val sd_clk_i_pad = in Bool()
+
   val int_cmd = out Bool()
   val int_data = out Bool()
 }
 
 
 class sdc_controller() extends BlackBox {
+
   val io = new Bundle {
     val SdIface = new SdCtlIface()
   }
@@ -88,8 +97,8 @@ class SdTop() extends Component {
 }
 
 
-object Top {
-  def main(args: Array[String]) {
-    SpinalVerilog(new SdTop())
-  }
-}
+//object Top {
+//  def main(args: Array[String]) {
+//    SpinalVerilog(new SdTop())
+//  }
+//}
