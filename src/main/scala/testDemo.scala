@@ -55,42 +55,35 @@ import spinal.lib._
 //
 //}
 
-
-class IIR(Qi: Int) extends Component {
+/** IIR 并行计算 */
+class ParallIIR(Qi: Int) extends Component {
   val io = new Bundle {
     val input = slave(Flow(SInt(Qi bits)))
-    val output = master(Flow(SInt(40 bits)))
+    val output = master(Flow(SInt(48 bits)))
   }
 
   val Xpara = List(7, 21, 42, 56, 56, 42, 21, 7)
   val Ypara = List(512, -922, 1163, -811, 472, -122, 24, -2)
+  val X = Vec(SInt(Qi bits), 8)
+  val Y = Vec(SInt(Qi bits), 8)
+  val XAdder = (SInt(32 bits))
+  val YAdder = (SInt(48 bits))
+  val XBuffer = History(io.input.payload, 8, io.input.valid)
+  val YBuffer = History(XAdder, 8, io.input.valid)
+  val XMultBuffer = Vec(SInt(32 bits), 8)
+  val YMultBuffer = Vec(SInt(48 bits), 8)
+
 
   noIoPrefix()
-
-  val X = Vec(SInt(12 bits), 8)
-  val Y = Vec(SInt(12 bits), 8)
 
   for (i <- 0 until 8) {
     X(i) := Xpara(i)
     Y(i) := Ypara(i)
   }
 
-  //  X.map(_ := 17)
-  //  Y.map(_ := 11)
-  //  X := (0 until 8).map(idx => 17).toList
-  //  Y := (0 until 8).map(idx => 17).toList
-
-  val XAdder = (SInt(28 bits))
-  val YAdder = (SInt(40 bits))
-  val XBuffer = History(io.input.payload, 8, io.input.valid)
-  val YBuffer = History(XAdder, 8, io.input.valid)
-  val XMultBuffer = Vec(SInt(28 bits), 8)
-  val YMultBuffer = Vec(SInt(40 bits), 8)
-
   io.output.valid := io.input.valid
 
   for (i <- 0 until 8) XMultBuffer(i) := RegNext(XBuffer(i) * X(i))
-
   XAdder := XMultBuffer.reduceBalancedTree(_ + _, (s, l) => RegNext(s))
 
   for (i <- 0 until 8) YMultBuffer(i) := RegNext(YBuffer(i) * Y(i))
@@ -100,9 +93,118 @@ class IIR(Qi: Int) extends Component {
 
 }
 
+/** IIR 串行计算 */
+case class SerilIIR(Qi: Int) extends Component {
+  val io = new Bundle {
+    val input = slave(Flow(SInt(Qi bits)))
+    val output = master(Flow(SInt(48 bits)))
+  }
+
+  val Xpara = List(7, 21, 42, 56, 56, 42, 21, 7)
+  val Ypara = List(512, -922, 1163, -811, 472, -122, 24, -2)
+
+  val xMultiValid = Reg(Bool()) init (False)
+  val yMulitValid = Reg(Bool()) init (False)
+
+  val xAddrValid = Reg(Bool()) init (False)
+  val yAddrValid = Reg(Bool()) init (False)
+
+  val X = Vec(Reg(SInt(Qi bits)), 8)
+  val Y = Vec(Reg(SInt(Qi bits)), 8)
+
+  val xCnt = Reg(UInt(4 bits)) init (0)
+  val yCnt = Reg(UInt(4 bits)) init (0)
+
+  val i = UInt(3 bits)
+  val j = UInt(3 bits)
+
+  val XAdder = Reg((SInt(32 bits))) init (0)
+  val YAdder = Reg((SInt(48 bits))) init (0)
+
+  val XMultBuffer = Vec((SInt(32 bits)), 8)
+  val YMultBuffer = Vec(SInt(48 bits), 8)
+
+  val XBuffer = History((io.input.payload), 8, (xAddrValid))
+  val YBuffer = History((XAdder), 8, yAddrValid)
+
+  noIoPrefix()
+
+  for (i <- 0 until 8) {
+    X(i) := Xpara(i)
+    Y(i) := Ypara(i)
+  }
+  for (i <- 0 until 8) {
+//    XBuffer(i) := 0
+//    YBuffer(i) := 0
+    XMultBuffer(i) := 0
+    YMultBuffer(i) := 0
+  }
+
+
+  io.output.valid := RegNext(yAddrValid)
+  io.output.payload := YAdder
+
+  when(io.input.valid === True) {
+    xCnt := 0
+  } elsewhen (xMultiValid === True) {
+    xCnt := xCnt + 1
+  }
+
+  when(io.input.valid === True) {
+    xMultiValid := True
+  } elsewhen (xCnt === 7) {
+    xMultiValid := False
+  }
+
+  when(xCnt === 7) {
+    xAddrValid := True
+  } otherwise {
+    xAddrValid := False
+  }
+
+  when(xAddrValid === True) {
+    yCnt := 0
+  } elsewhen (yMulitValid === True) {
+    yCnt := yCnt + 1
+  }
+
+  when(xAddrValid === True) {
+    yMulitValid := True
+  } elsewhen (yCnt === 7) {
+    yMulitValid := False
+  }
+
+  when(yCnt === 7) {
+    yAddrValid := True
+  } otherwise {
+    yAddrValid := False
+  }
+
+  i := xCnt.resize(3)
+  j := yCnt.resize(3)
+
+  when(xMultiValid === True) {
+    XMultBuffer(i) := XBuffer(i) * X(i)
+  }
+
+  when(xAddrValid === True) {
+    XAdder := XMultBuffer.reduceBalancedTree(_ + _, (s, l) => RegNext(s))
+  }
+
+  when(yMulitValid === True) {
+    YMultBuffer(j) := (YBuffer(j) * Y(j))
+  }
+
+  when(yAddrValid === True) {
+    YAdder := YMultBuffer.reduceBalancedTree(_ + _, (s, l) => RegNext(s))
+  }
+
+
+}
+
+
 object firtop extends App {
-  SpinalVerilog(new IIR(8))
-  //  PrintXDC("xdc", "route.xdc")
+  SpinalVerilog(new SerilIIR(16))
 }
 
 

@@ -12,7 +12,7 @@ import spinal.core.sim._
 
 object DutTests {
   def main(args: Array[String]): Unit = {
-    SimConfig.withWave.compile(new IIR(16)).doSim { dut =>
+    SimConfig.withWave.compile(new SerilIIR(16)).doSim { dut =>
       dut.clockDomain.forkStimulus(10)
       dut.io.input.valid #= false
       dut.io.input.payload #= 0
@@ -45,6 +45,10 @@ object DutTests {
         println(x.toLong)
         dut.io.input.valid #= true
         dut.clockDomain.waitSampling()
+        dut.io.input.valid #= false
+        for(i<-0 until 20){
+          dut.clockDomain.waitSampling()
+        }
       }
       simSuccess()
     }
