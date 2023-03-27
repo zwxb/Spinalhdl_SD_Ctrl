@@ -12,41 +12,52 @@ import spinal.core.sim._
 
 object DutTests {
   def main(args: Array[String]): Unit = {
-    SimConfig.withWave.compile(new SerilIIR(16)).doSim { dut =>
-      dut.clockDomain.forkStimulus(10)
+    SimConfig.withWave.compile(new SerilIIRV1(16)).doSim { dut =>
+      dut.clockDomain.forkStimulus(10000)
       dut.io.input.valid #= false
       dut.io.input.payload #= 0
       dut.clockDomain.waitSampling()
 
-      val Freq = 400
+      val Mclk = 100000000
+      val FFS = 20
+      val Fs = Mclk / FFS
+      println(Fs)
+
+      val SinHz1 = 200000
+      val SinHz2 = 400000
+
+      val Freq1 = Fs / SinHz1
+      val freq2 = Fs / SinHz2
 
 
-      val SinBuffer1 = List.tabulate(Freq)(i => {
-        val sinValue = Math.sin(2 * Math.PI * i / Freq)
-        sinValue * 100
+      println(Freq1)
+
+
+      val SinBuffer1 = List.tabulate(Freq1)(i => {
+        val sinValue = Math.sin(2 * Math.PI * i / Freq1)
+        sinValue * 10
       })
-      val SinBuffer2 = List.tabulate(Freq)(i => {
-        val sinValue = Math.sin(20 * Math.PI * i / Freq)
-        sinValue * 100
+      val SinBuffer2 = List.tabulate(freq2)(i => {
+        val sinValue = Math.sin(2 * Math.PI * i / freq2)
+        sinValue * 10
       })
 
-      val SinBuffer3 = List.tabulate(Freq)(i => {
-        val sinValue = Math.sin(20 * Math.PI * i / Freq) + Math.sin(50 * Math.PI * i / Freq) + Math.sin(60 * Math.PI * i / Freq)
-        sinValue * 100
+      val SinBuffer3 = List.tabulate(Freq1)(i => {
+        val sinValue = Math.sin(2 * 5 * Math.PI * i / Freq1)
+        sinValue * 10
       })
 
-      val source = List.concat(SinBuffer1, SinBuffer1, SinBuffer2, SinBuffer2, SinBuffer2, SinBuffer3, SinBuffer3, SinBuffer3)
+      val source = List.concat(SinBuffer1, SinBuffer2, SinBuffer3,SinBuffer3)
 
       println(source)
 
 
       for (x <- source) {
         dut.io.input.payload #= x.toLong
-        println(x.toLong)
         dut.io.input.valid #= true
         dut.clockDomain.waitSampling()
         dut.io.input.valid #= false
-        for(i<-0 until 20){
+        for (i <- 0 until FFS) {
           dut.clockDomain.waitSampling()
         }
       }

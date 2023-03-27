@@ -55,7 +55,7 @@ import spinal.lib._
 //
 //}
 
-/** IIR 并行计算 */
+/** IIR 直接I型 并行计算 */
 class ParallIIR(Qi: Int) extends Component {
   val io = new Bundle {
     val input = slave(Flow(SInt(Qi bits)))
@@ -93,21 +93,22 @@ class ParallIIR(Qi: Int) extends Component {
 
 }
 
-/** IIR 串行计算 */
-case class SerilIIR(Qi: Int) extends Component {
+/** IIR 直接I型 串行计算 */
+case class SerilIIRV1(Qi: Int) extends Component {
   val io = new Bundle {
     val input = slave(Flow(SInt(Qi bits)))
     val output = master(Flow(SInt(48 bits)))
   }
 
-  val Xpara = List(7, 21, 42, 56, 56, 42, 21, 7)
-  val Ypara = List(512, -922, 1163, -811, 472, -122, 24, -2)
+  val Xpara = List(0, 1, 4, 6, 6, 4, 1, 0)
+  val Ypara = List(0, 8565, -16122, 17472, -11694, 4811, -1123, 114)
 
   val xMultiValid = Reg(Bool()) init (False)
   val yMulitValid = Reg(Bool()) init (False)
 
   val xAddrValid = Reg(Bool()) init (False)
   val yAddrValid = Reg(Bool()) init (False)
+  val Yout = Reg(SInt(48 bits)) init (0)
 
   val X = Vec(Reg(SInt(Qi bits)), 8)
   val Y = Vec(Reg(SInt(Qi bits)), 8)
@@ -124,25 +125,22 @@ case class SerilIIR(Qi: Int) extends Component {
   val XMultBuffer = Vec((SInt(32 bits)), 8)
   val YMultBuffer = Vec(SInt(48 bits), 8)
 
-  val XBuffer = History((io.input.payload), 8, (xAddrValid))
-  val YBuffer = History((XAdder), 8, yAddrValid)
+  val XBuffer = History((io.input.payload), 8, (xAddrValid), S(0, 16 bits))
+  val YBuffer = History((Yout), 8, yAddrValid, S(0, 48 bits))
+
 
   noIoPrefix()
+
+  XMultBuffer.map(_ := 0)
+  YMultBuffer.map(_ := 0)
 
   for (i <- 0 until 8) {
     X(i) := Xpara(i)
     Y(i) := Ypara(i)
   }
-  for (i <- 0 until 8) {
-//    XBuffer(i) := 0
-//    YBuffer(i) := 0
-    XMultBuffer(i) := 0
-    YMultBuffer(i) := 0
-  }
-
 
   io.output.valid := RegNext(yAddrValid)
-  io.output.payload := YAdder
+  io.output.payload := (Yout).resize(48 bits)
 
   when(io.input.valid === True) {
     xCnt := 0
@@ -150,17 +148,8 @@ case class SerilIIR(Qi: Int) extends Component {
     xCnt := xCnt + 1
   }
 
-  when(io.input.valid === True) {
-    xMultiValid := True
-  } elsewhen (xCnt === 7) {
-    xMultiValid := False
-  }
-
-  when(xCnt === 7) {
-    xAddrValid := True
-  } otherwise {
-    xAddrValid := False
-  }
+  xMultiValid.setWhen(io.input.valid).clearWhen(xCnt === 7)
+  xAddrValid.setWhen(xCnt === 7).clearWhen(xCnt =/= 7)
 
   when(xAddrValid === True) {
     yCnt := 0
@@ -168,23 +157,14 @@ case class SerilIIR(Qi: Int) extends Component {
     yCnt := yCnt + 1
   }
 
-  when(xAddrValid === True) {
-    yMulitValid := True
-  } elsewhen (yCnt === 7) {
-    yMulitValid := False
-  }
-
-  when(yCnt === 7) {
-    yAddrValid := True
-  } otherwise {
-    yAddrValid := False
-  }
+  yMulitValid.setWhen(xAddrValid).clearWhen(yCnt === 7)
+  yAddrValid.setWhen(yCnt === 7).clearWhen(yCnt =/= 7)
 
   i := xCnt.resize(3)
   j := yCnt.resize(3)
 
   when(xMultiValid === True) {
-    XMultBuffer(i) := XBuffer(i) * X(i)
+    XMultBuffer(i) := (XBuffer(i) * X(i))
   }
 
   when(xAddrValid === True) {
@@ -192,19 +172,111 @@ case class SerilIIR(Qi: Int) extends Component {
   }
 
   when(yMulitValid === True) {
-    YMultBuffer(j) := (YBuffer(j) * Y(j))
+    YMultBuffer(j) := (YBuffer(j) * Y(j)) (63 downto 16)
   }
 
   when(yAddrValid === True) {
     YAdder := YMultBuffer.reduceBalancedTree(_ + _, (s, l) => RegNext(s))
+    Yout := YAdder + XAdder
   }
 
 
 }
 
+/** IIR 直接II型 串行计算 */
+//case class SerilIIRV2(Qi: Int) extends Component {
+//  val io = new Bundle {
+//    val input = slave(Flow(SInt(Qi bits)))
+//    val output = master(Flow(SInt(48 bits)))
+//  }
+//
+//  val Xpara = List(0, 1, 4, 6, 6, 4, 1, 0)
+//  val Ypara = List(2048, -8565, 16122, -17472, 11694, -4811, 1123, -114)
+//
+//  val xMultiValid = Reg(Bool()) init (False)
+//  val yMulitValid = Reg(Bool()) init (False)
+//
+//  val xAddrValid = Reg(Bool()) init (False)
+//  val yAddrValid = Reg(Bool()) init (False)
+//
+//  val X = Vec(Reg(SInt(Qi bits)), 8)
+//  val Y = Vec(Reg(SInt(Qi bits)), 8)
+//
+//  val xCnt = Reg(UInt(4 bits)) init (0)
+//  val yCnt = Reg(UInt(4 bits)) init (0)
+//
+//  val i = UInt(3 bits)
+//  val j = UInt(3 bits)
+//
+//  val XAdder = Reg((SInt(48 bits))) init (0)
+//  val YAdder = Reg((SInt(64 bits))) init (0)
+//
+//  val XMultBuffer = Vec((SInt(48 bits)), 8)
+//  val YMultBuffer = Vec(SInt(64 bits), 8)
+//
+//  val YBuffer = History((XAdder), 8, xAddrValid, S(0, 48 bits))
+//
+//
+//  noIoPrefix()
+//
+//  XMultBuffer.map(_ := 0)
+//  YMultBuffer.map(_ := 0)
+//
+//  for (i <- 0 until 8) {
+//    X(i) := Xpara(i)
+//    Y(i) := Ypara(i)
+//  }
+//
+//  io.output.valid := RegNext(yAddrValid)
+//  io.output.payload := (YAdder >> 11).resize(48 bits)
+//
+//  when(io.input.valid === True) {
+//    xCnt := 0
+//  } elsewhen (xMultiValid === True) {
+//    xCnt := xCnt + 1
+//  }
+//
+//  xMultiValid.setWhen(io.input.valid).clearWhen(xCnt === 7)
+//  xAddrValid.setWhen(xCnt === 7).clearWhen(xCnt =/= 7)
+//
+//  when(xAddrValid === True) {
+//    yCnt := 0
+//  } elsewhen (yMulitValid === True) {
+//    yCnt := yCnt + 1
+//  }
+//
+//  yMulitValid.setWhen(xAddrValid).clearWhen(yCnt === 7)
+//  yAddrValid.setWhen(yCnt === 7).clearWhen(yCnt =/= 7)
+//
+//  i := xCnt.resize(3)
+//  j := yCnt.resize(3)
+//
+//  when(xMultiValid === True) {
+//    when(i === 0) {
+//      XMultBuffer(i) := io.input.payload.resize(32) * X(i)
+//    } otherwise {
+//      XMultBuffer(i) := YBuffer(i) * X(i)
+//    }
+//  }
+//
+//  when(xAddrValid === True) {
+//    XAdder := XMultBuffer.reduceBalancedTree(_ + _, (s, l) => RegNext(s))
+//  }
+//
+//  when(yMulitValid === True) {
+//    YMultBuffer(j) := YBuffer(j) * Y(j)
+//  }
+//
+//  when(yAddrValid === True) {
+//    YAdder := YMultBuffer.reduceBalancedTree(_ + _, (s, l) => RegNext(s))
+//  }
+//
+//
+//}
 
-object firtop extends App {
-  SpinalVerilog(new SerilIIR(16))
+
+object IIR_Top extends App {
+  SpinalVerilog(new SerilIIRV1(16))
 }
 
 
