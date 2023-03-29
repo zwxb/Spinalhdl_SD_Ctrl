@@ -1,52 +1,81 @@
 import spinal.core._
 import spinal.lib._
 
-class DiffFs() extends Component {
+/** 打包模块 加头/尾  stream位宽：256 -> 320 */
+class PkgHeadTail() extends Component {
   val io = new Bundle {
 
-    val source = Vec(slave(Stream(Bits(32 bits))), 4)
+    val in8 = Vec(slave(Stream(Bits(256 bits))), 4)
+    val Out10 = Vec(master(Stream(Bits(320 bits))), 4)
+    val PHead = in Vec(Bits(32 bits), 4)
+    val PTail = in Vec(Bits(32 bits), 4)
 
-    val sink = master(Stream(Bits(320 bits)))
-    val FsCh = in Vec(Bits(32 bits), 4)
+    val PVaildNum = in Vec(UInt(8 bits), 4)
+    val P16Or32Bits = in Vec(Bits(2 bits), 4)
+    val PExtTrigger = in Vec(Bool(), 4)
+    val PExtPhase = in Vec(UInt(31 bits), 4)
+    val PType = in Vec(Bits(3 bits), 4)
+    val PExtTriCnt = in Vec(UInt(5 bits), 4)
+
   }
 
-  val FiFO = Vec(Stream(Bits(32 bits)), 4)
-  val Package8_Stream = Vec(master(Stream(Bits(256 bits))), 4)
-  val package10_Stream = Vec(slave(Stream(Bits(320 bits))), 4)
-  val PackageHead = Vec(Bits(32 bits), 4)
-  val packageTail = Vec(Bits(32 bits), 4)
-  val splicing = Vec(Bits(320 bits), 4)
+  noIoPrefix()
 
-
-  /** 不同速率缓冲不同FIFO 最高支持4种不同采样率 */
-  for (i <- 0 until 4) {
-    io.source(i).queue(16) >> FiFO(i)
+  for (i <- 0 until (4)) {
+    io.in8(i).ready <> io.Out10(i).ready
+    io.Out10(i).valid <> io.in8(i).valid
+    io.Out10(i).payload := io.PHead(i) ## io.in8(i).payload ## io.PTail(i)
   }
-
-  /** 8个数据拼接1包发送 */
-  for (i <- 0 until 4) {
-    StreamWidthAdapter(FiFO(i), Package8_Stream(i))
+  for (i <- 0 until (4)) {
+    io.PHead(i) := io.PVaildNum(i) ## io.P16Or32Bits(i) ## io.PType(i) ## io.PExtTriCnt(i)
   }
-
-  /** 打包数据加入头和尾 */
-  for (i <- 0 until 4) {
-    splicing(i) := PackageHead(i) ## Package8_Stream(i).payload ## packageTail(i)
+  for (i <- 0 until (4)) {
+    io.PTail(i) := io.PExtTrigger(i) ## io.PExtPhase(i)
   }
-
-  for (i <- 0 until 4) {
-    when(Package8_Stream(i).valid && package10_Stream(i).ready) {
-      package10_Stream(i).valid := True
-      package10_Stream(i).payload := splicing(i)
-    }
-  }
-
-
-  val Stream0 = StreamArbiterFactory.roundRobin.onArgs(package10_Stream(3), package10_Stream(2), package10_Stream(1), package10_Stream(0))
-
-  Stream0 >> io.sink
 
 }
 
+/** 4种不同采样率数据汇聚到FIFO种，FIFO每8点拼接为1小包 */
+class ADDiffFsData() extends Component {
+  val io = new Bundle {
+    val source = Vec(slave(Stream(Bits(32 bits))), 4)
+    val sink = Vec(master(Stream(Bits(256 bits))), 4)
+    val PValidNum = in Vec(UInt(6 bits), 4)
+  }
+
+  noIoPrefix()
+
+  val FIFO = Vec((Stream(Bits(32 bits))), 4)
+
+  for (i <- 0 until (4)) {
+    io.source(i).queue(16) >> FIFO(i)
+  }
+
+  for (i <- 0 until (4)) {
+    StreamWidthAdapter(FIFO(i), io.sink(i))
+  }
+}
+
+
+/** 轮询仲裁不同采样率Fifo模块 Stream: 4 Mux 1 数据位宽：320-> 32 */
+class Arbiter() extends Component {
+  val io = new Bundle {
+    val source = Vec(slave(Stream(Bits(320 bits))), 4)
+    val Sink = master(Stream(Bits(32 bits)))
+  }
+
+  noIoPrefix()
+
+  val FiFO = Vec(Stream(Bits(320 bits)), 4)
+
+  for (i <- 0 until 4) {
+    io.source(i).queue(4) >> FiFO(i)
+  }
+  val Stream0 = StreamArbiterFactory.roundRobin.onArgs(FiFO(3), FiFO(2), FiFO(1), FiFO(0))
+  StreamWidthAdapter(Stream0, io.Sink)
+}
+
+
 object DiffFsTop extends App {
-  SpinalVerilog(new DiffFs())
+  SpinalVerilog(new ADDiffFsData())
 }
