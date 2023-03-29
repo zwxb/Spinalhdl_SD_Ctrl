@@ -10,11 +10,17 @@ class PkgHeadTail() extends Component {
     val PHead = in Vec(Bits(32 bits), 4)
     val PTail = in Vec(Bits(32 bits), 4)
 
+    //包有效数据位宽
     val PVaildNum = in Vec(UInt(8 bits), 4)
+    //包数据为32bits or 16Bits
     val P16Or32Bits = in Vec(Bits(2 bits), 4)
+    //包外触发标志
     val PExtTrigger = in Vec(Bool(), 4)
+    //包外触发相位
     val PExtPhase = in Vec(UInt(31 bits), 4)
+    //包类型 根据不同采样率划分
     val PType = in Vec(Bits(3 bits), 4)
+    //包外触发点位置
     val PExtTriCnt = in Vec(UInt(5 bits), 4)
 
   }
@@ -55,7 +61,6 @@ class ADDiffFsData() extends Component {
     StreamWidthAdapter(FIFO(i), io.sink(i))
   }
 }
-
 
 /** 轮询仲裁不同采样率Fifo模块 Stream: 4 Mux 1 数据位宽：320-> 32 */
 class Arbiter() extends Component {
