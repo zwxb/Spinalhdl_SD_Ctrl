@@ -97,7 +97,7 @@ class ParallIIR(Qi: Int) extends Component {
 case class SerilIIRV1(Qi: Int) extends Component {
   val io = new Bundle {
     val input = slave(Flow(SInt(Qi bits)))
-    val output = master(Flow(SInt(48 bits)))
+    val output = master(Flow(SInt(32 bits)))
   }
 
   val Xpara = List(0, 1, 4, 6, 6, 4, 1, 0)
@@ -108,7 +108,9 @@ case class SerilIIRV1(Qi: Int) extends Component {
 
   val xAddrValid = Reg(Bool()) init (False)
   val yAddrValid = Reg(Bool()) init (False)
-  val Yout = Reg(SInt(48 bits)) init (0)
+  val OutVailid = Reg(Bool()) init (False)
+
+  val Yout = Reg(SInt(32 bits)) init (0)
 
   val X = Vec(Reg(SInt(Qi bits)), 8)
   val Y = Vec(Reg(SInt(Qi bits)), 8)
@@ -122,17 +124,17 @@ case class SerilIIRV1(Qi: Int) extends Component {
   val XAdder = Reg((SInt(32 bits))) init (0)
   val YAdder = Reg((SInt(48 bits))) init (0)
 
-  val XMultBuffer = Vec((SInt(32 bits)), 8)
-  val YMultBuffer = Vec(SInt(48 bits), 8)
+  val XMultBuffer = Vec(Reg(SInt(32 bits)), 8)
+  val YMultBuffer = Vec(Reg(SInt(48 bits)), 8)
 
-  val XBuffer = History((io.input.payload), 8, (xAddrValid), S(0, 16 bits))
-  val YBuffer = History((Yout), 8, yAddrValid, S(0, 48 bits))
+  val XBuffer = History((io.input.payload), 8, xAddrValid, S(0, 16 bits))
+  val YBuffer = History(Yout, 8, OutVailid, S(0, 32 bits))
 
 
   noIoPrefix()
 
-  XMultBuffer.map(_ := 0)
-  YMultBuffer.map(_ := 0)
+  //  XMultBuffer.map(_ := 0)
+  //  YMultBuffer.map(_ := 0)
 
   for (i <- 0 until 8) {
     X(i) := Xpara(i)
@@ -140,7 +142,7 @@ case class SerilIIRV1(Qi: Int) extends Component {
   }
 
   io.output.valid := RegNext(yAddrValid)
-  io.output.payload := (Yout).resize(48 bits)
+  io.output.payload := Yout
 
   when(io.input.valid === True) {
     xCnt := 0
@@ -149,6 +151,7 @@ case class SerilIIRV1(Qi: Int) extends Component {
   }
 
   xMultiValid.setWhen(io.input.valid).clearWhen(xCnt === 7)
+
   xAddrValid.setWhen(xCnt === 7).clearWhen(xCnt =/= 7)
 
   when(xAddrValid === True) {
@@ -158,7 +161,10 @@ case class SerilIIRV1(Qi: Int) extends Component {
   }
 
   yMulitValid.setWhen(xAddrValid).clearWhen(yCnt === 7)
+
   yAddrValid.setWhen(yCnt === 7).clearWhen(yCnt =/= 7)
+
+  OutVailid.setWhen(yAddrValid).clearWhen(yAddrValid === False)
 
   i := xCnt.resize(3)
   j := yCnt.resize(3)
@@ -168,16 +174,19 @@ case class SerilIIRV1(Qi: Int) extends Component {
   }
 
   when(xAddrValid === True) {
-    XAdder := XMultBuffer.reduceBalancedTree(_ + _, (s, l) => RegNext(s))
+    XAdder := XMultBuffer.reduceBalancedTree(_ + _)
   }
 
   when(yMulitValid === True) {
-    YMultBuffer(j) := (YBuffer(j) * Y(j)) (63 downto 16)
+    YMultBuffer(j) := (YBuffer(j) * Y(j))
   }
 
   when(yAddrValid === True) {
-    YAdder := YMultBuffer.reduceBalancedTree(_ + _, (s, l) => RegNext(s))
-    Yout := YAdder + XAdder
+    YAdder := YMultBuffer.reduceBalancedTree(_ + _)
+  }
+
+  when(OutVailid === True) {
+    Yout := (YAdder(47 downto (16)) + XAdder)
   }
 
 

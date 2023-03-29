@@ -23,7 +23,7 @@ object DutTests {
       val Fs = Mclk / FFS
       println(Fs)
 
-      val SinHz1 = 200000
+      val SinHz1 = 100000
       val SinHz2 = 400000
 
       val Freq1 = Fs / SinHz1
@@ -35,19 +35,19 @@ object DutTests {
 
       val SinBuffer1 = List.tabulate(Freq1)(i => {
         val sinValue = Math.sin(2 * Math.PI * i / Freq1)
-        sinValue * 10
+        sinValue * 100
       })
       val SinBuffer2 = List.tabulate(freq2)(i => {
         val sinValue = Math.sin(2 * Math.PI * i / freq2)
-        sinValue * 10
+        sinValue * 100
       })
 
       val SinBuffer3 = List.tabulate(Freq1)(i => {
         val sinValue = Math.sin(2 * 5 * Math.PI * i / Freq1)
-        sinValue * 10
+        sinValue * 100
       })
 
-      val source = List.concat(SinBuffer1, SinBuffer2, SinBuffer3,SinBuffer3)
+      val source = List.concat(SinBuffer1, SinBuffer1, SinBuffer3,SinBuffer3)
 
       println(source)
 
