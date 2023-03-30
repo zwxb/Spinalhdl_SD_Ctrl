@@ -44,22 +44,53 @@ class PkgHeadTail() extends Component {
 /** 4种不同采样率数据汇聚到FIFO种，FIFO每8点拼接为1小包 */
 class ADDiffFsData() extends Component {
   val io = new Bundle {
-    val source = Vec(slave(Stream(Bits(32 bits))), 4)
+    val source = Vec(slave(Flow(Bits(32 bits))), 4)
     val sink = Vec(master(Stream(Bits(256 bits))), 4)
     val PValidNum = in Vec(UInt(6 bits), 4)
   }
 
   noIoPrefix()
 
-  val FIFO = Vec((Stream(Bits(32 bits))), 4)
+  val FIFO = Vec((Stream(Bits(256 bits))), 4)
+  val xCnt = Vec(Reg(UInt(6 bits)), 4)
+  val Pdata = Vec((Flow(Bits(256 bits))), 4)
+
+  val ADBuffer0 = History(io.source(0).payload, 8, io.source(0).valid, B(0, 32 bits))
+  val ADBuffer1 = History(io.source(1).payload, 8, io.source(1).valid, B(0, 32 bits))
+  val ADBuffer2 = History(io.source(2).payload, 8, io.source(2).valid, B(0, 32 bits))
+  val ADBuffer3 = History(io.source(3).payload, 8, io.source(3).valid, B(0, 32 bits))
+
+  val ADBuffer = Vec(ADBuffer0, ADBuffer1, ADBuffer2, ADBuffer3)
+
+  //初始化
+  xCnt.map(_ := 19)
 
   for (i <- 0 until (4)) {
-    io.source(i).queue(16) >> FIFO(i)
+    Pdata(i).setIdle()
   }
 
   for (i <- 0 until (4)) {
-    StreamWidthAdapter(FIFO(i), io.sink(i))
+    when(xCnt(i) === io.PValidNum(i) + 1) {
+      xCnt(i) := 0
+    } elsewhen (io.source(i).valid === True) {
+      xCnt(i) := xCnt(i) + 1
+    }
   }
+
+  for (i <- 0 until (4)) {
+    Pdata(i).valid.setWhen(xCnt(i) === io.PValidNum(i)).clearWhen(xCnt(i) =/= io.PValidNum(i))
+  }
+
+  for (i <- 0 until (4)) {
+    when(Pdata(i).valid === True) {
+      Pdata(i).payload := ADBuffer(i).asBits
+    }
+  }
+
+  for (i <- 0 until (4)) {
+    Pdata(i).toStream.queue(4) >> io.sink(i)
+  }
+
 }
 
 /** 轮询仲裁不同采样率Fifo模块 Stream: 4 Mux 1 数据位宽：320-> 32 */
@@ -82,5 +113,5 @@ class Arbiter() extends Component {
 
 
 object DiffFsTop extends App {
-  SpinalVerilog(new ADDiffFsData())
+  SpinalVerilog(new Arbiter())
 }
