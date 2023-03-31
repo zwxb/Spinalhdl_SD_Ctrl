@@ -17,7 +17,12 @@ object ADDiffTests {
     SimConfig.withWave.compile(new ADPackArbiter()).doSim { dut =>
       dut.clockDomain.forkStimulus(10000)
 
-      val Cnt = Vec(UInt(32 bits), 4)
+      //val Cnt = Vec(UInt(32 bits), 4)
+      val Cnt = new Array[Int](4)
+
+      for(i<-0 until(4)){
+        Cnt(i) = 1
+      }
 
       for (i <- 0 until (4)) {
         dut.io.PVaildNum(i) #= 0
@@ -65,7 +70,10 @@ object ADDiffTests {
       for (x <- 0 until (100)) {
         for (i <- 0 until (4)) {
           dut.io.source(i).valid #= Random.nextBoolean()
-          dut.io.source(i).payload #= Random.nextInt(32)
+          if(dut.io.source(i).valid.toBoolean == true){
+            Cnt(i) = Cnt(i) + 1
+          }
+          dut.io.source(i).payload #= Cnt(i)
         }
         dut.clockDomain.waitSampling()
       }

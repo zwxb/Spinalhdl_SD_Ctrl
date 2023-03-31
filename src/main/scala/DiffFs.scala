@@ -71,10 +71,10 @@ class ADDiffFsData() extends Component {
   for (i <- 0 until (4)) {
     Pdata(i).setIdle()
   }
-
   for (i <- 0 until 4) {
     BValid(i) := io.source(i).valid
   }
+
 
   for (i <- 0 until (4)) {
     when(xCnt(i) >= io.PValidNum(i) + 1) {
@@ -156,13 +156,13 @@ class ADPackArbiter() extends Component {
   io.PType <> PKHTData.io.PType
   io.PExtTriCnt <> PKHTData.io.PExtTriCnt
 
-  for(i<-0 until(4)){
+  for (i <- 0 until (4)) {
     io.source(i) >-> ADFsData.io.source(i)
   }
-  for(i<-0 until(4)){
+  for (i <- 0 until (4)) {
     ADFsData.io.sink(i) >-> PKHTData.io.in8(i)
   }
-  for(i<-0 until(4)){
+  for (i <- 0 until (4)) {
     PKHTData.io.Out10(i) >-> ArbiterData.io.source(i)
   }
   ArbiterData.io.Sink >-> io.sink
