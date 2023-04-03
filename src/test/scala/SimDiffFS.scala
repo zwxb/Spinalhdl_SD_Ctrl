@@ -20,7 +20,13 @@ object ADDiffTests {
       //val Cnt = Vec(UInt(32 bits), 4)
       val Cnt = new Array[Int](4)
 
-      for(i<-0 until(4)){
+
+      for (i <- 0 until 4) {
+        dut.io.source(i).valid #= false
+        dut.io.source(i).payload #= 0
+      }
+
+      for (i <- 0 until (4)) {
         Cnt(i) = 1
       }
 
@@ -32,9 +38,10 @@ object ADDiffTests {
         dut.io.PExtTriCnt(i) #= 0
         dut.io.PExtTrigger(i) #= 0.toBoolean
       }
-      for (i <- 0 until 5) {
+      for (i <- 0 until 1) {
         dut.clockDomain.waitSampling()
       }
+
       dut.io.PVaildNum(0) #= 0
       dut.io.PVaildNum(1) #= 1
       dut.io.PVaildNum(2) #= 2
@@ -61,23 +68,22 @@ object ADDiffTests {
       dut.io.PExtTrigger(3) #= 0.toBoolean
 
 
-      for (i <- 0 until 4) {
-        dut.io.source(i).valid #= false
-        dut.io.source(i).payload #= 0
-      }
       dut.clockDomain.waitSampling()
+
 
       for (x <- 0 until (100)) {
         for (i <- 0 until (4)) {
-          dut.io.source(i).valid #= Random.nextBoolean()
-          if(dut.io.source(i).valid.toBoolean == true){
-            Cnt(i) = Cnt(i) + 1
+          dut.io.source(i).valid #= true
+          dut.io.source(i).payload #= x
+          dut.clockDomain.waitSampling()
+          dut.io.source(i).valid #= false
+          for (i <- 0 until (16)) {
+            dut.clockDomain.waitSampling()
           }
-          dut.io.source(i).payload #= Cnt(i)
         }
-        dut.clockDomain.waitSampling()
       }
       simSuccess()
+
     }
   }
 }

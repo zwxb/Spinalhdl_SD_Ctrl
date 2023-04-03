@@ -17,7 +17,7 @@ class PkgHeadTail() extends Component {
     //包外触发相位
     val PExtPhase = in Vec(UInt(31 bits), 4)
     //包类型 根据不同采样率划分
-    val PType = in Vec(Bits(3 bits), 4)
+    val PType = in Vec(Bits(4 bits), 4)
     //包外触发点位置
     val PExtTriCnt = in Vec(UInt(5 bits), 4)
 
@@ -35,7 +35,7 @@ class PkgHeadTail() extends Component {
     io.Out10(i).payload := PHead(i) ## io.in8(i).payload ## PTail(i)
   }
   for (i <- 0 until (4)) {
-    PHead(i) := (io.PVaildNum(i) ## io.P16Or32Bits(i) ## io.PType(i) ## io.PExtTriCnt(i)).resize(32)
+    PHead(i) := (io.PType(i) ## io.PVaildNum(i) ## io.P16Or32Bits(i) ## io.PExtTriCnt(i)).resizeLeft(32)
   }
   for (i <- 0 until (4)) {
     PTail(i) := io.PExtTrigger(i) ## io.PExtPhase(i)
@@ -56,29 +56,39 @@ class ADDiffFsData() extends Component {
   val FIFO = Vec((Stream(Bits(256 bits))), 4)
   val xCnt = Vec(Reg(UInt(6 bits)), 4)
   val BValid = Vec(Reg(Bool()), 4)
+  val BData = Vec(Reg(Bits(32 bits)), 4)
   val Pdata = Vec((Flow(Bits(256 bits))), 4)
 
-  val ADBuffer0 = History(io.source(0).payload, 8, BValid(0), B(0, 32 bits))
-  val ADBuffer1 = History(io.source(1).payload, 8, BValid(1), B(0, 32 bits))
-  val ADBuffer2 = History(io.source(2).payload, 8, BValid(2), B(0, 32 bits))
-  val ADBuffer3 = History(io.source(3).payload, 8, BValid(3), B(0, 32 bits))
+  val ADBuffer0 = History(BData(0), 8, BValid(0), B(0, 32 bits))
+  val ADBuffer1 = History(BData(1), 8, BValid(1), B(0, 32 bits))
+  val ADBuffer2 = History(BData(2), 8, BValid(2), B(0, 32 bits))
+  val ADBuffer3 = History(BData(3), 8, BValid(3), B(0, 32 bits))
+
 
   val ADBuffer = Vec(ADBuffer0, ADBuffer1, ADBuffer2, ADBuffer3)
 
   //初始化
-  //  xCnt.map(_ := 0)
+  for (i <- 0 until (4)) {
+    xCnt(i).init(0)
+  }
 
   for (i <- 0 until (4)) {
     Pdata(i).setIdle()
   }
+
   for (i <- 0 until 4) {
     BValid(i) := io.source(i).valid
   }
 
+  for (i <- 0 until (4)) {
+    BData(i) := io.source(i).payload
+  }
 
   for (i <- 0 until (4)) {
-    when(xCnt(i) >= io.PValidNum(i) + 1) {
+    when((xCnt(i) >= io.PValidNum(i) + 1) && io.source(i).valid === False) {
       xCnt(i) := 0
+    } elsewhen (xCnt(i) >= io.PValidNum(i) + 1) {
+      xCnt(i) := 1
     } elsewhen (io.source(i).valid === True) {
       xCnt(i) := xCnt(i) + 1
     }
@@ -116,9 +126,11 @@ class Arbiter() extends Component {
   val FiFO = Vec(Stream(Bits(320 bits)), 4)
 
   for (i <- 0 until 4) {
-    io.source(i).queue(4) >> FiFO(i)
+    io.source(i).queue(1024) >> FiFO(i)
   }
-  val Stream0 = StreamArbiterFactory.roundRobin.onArgs(FiFO(3), FiFO(2), FiFO(1), FiFO(0))
+
+  val Stream0 = StreamArbiterFactory.roundRobin.noLock.onArgs(FiFO(3), FiFO(2), FiFO(1), FiFO(0))
+
   StreamWidthAdapter(Stream0, io.Sink)
 }
 
@@ -136,7 +148,7 @@ class ADPackArbiter() extends Component {
     //包外触发相位
     val PExtPhase = in Vec(UInt(31 bits), 4)
     //包类型 根据不同采样率划分
-    val PType = in Vec(Bits(3 bits), 4)
+    val PType = in Vec(Bits(4 bits), 4)
     //包外触发点位置
     val PExtTriCnt = in Vec(UInt(5 bits), 4)
 
@@ -170,7 +182,7 @@ class ADPackArbiter() extends Component {
 
 
 object DiffFsTop extends App {
-  SpinalVerilog(new ADPackArbiter())
+  SpinalVerilog(new PkgHeadTail())
 }
 
 
