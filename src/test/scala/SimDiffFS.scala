@@ -12,7 +12,7 @@ import scala.util.Random
 //})
 
 
-object ADDiffTests {
+object TestADPackArbiter {
   def main(args: Array[String]): Unit = {
     SimConfig.withWave.compile(new ADPackArbiter()).doSim { dut =>
       dut.clockDomain.forkStimulus(10000)
@@ -84,6 +84,43 @@ object ADDiffTests {
       }
       simSuccess()
 
+    }
+  }
+}
+
+object TestArbiter {
+  def main(args: Array[String]): Unit = {
+    SimConfig.withWave.compile(new Arbiter()).doSim { dut =>
+
+      dut.clockDomain.forkStimulus(10000)
+
+      for (i <- 0 until 20) {
+        dut.clockDomain.waitSampling()
+      }
+
+      val pushThread = fork {
+
+        for (i <- 0 until (4)) {
+          dut.io.source(i).valid #= false
+        }
+
+        for (x <- 0 until (100)) {
+          for (i <- 0 until (4)) {
+            dut.io.source(i).valid #= true
+            dut.io.source(i).payload #= x
+            dut.clockDomain.waitSampling()
+            dut.io.source(i).valid #= false
+//            if(dut.io.source(i).valid.toBoolean && dut.io.source(i).ready.toBoolean) {
+//
+//            }
+            for (i <- 0 until (16)) {
+              dut.clockDomain.waitSampling()
+            }
+          }
+        }
+        simSuccess()
+      }
+      pushThread.join()
     }
   }
 }

@@ -124,14 +124,16 @@ class Arbiter() extends Component {
   noIoPrefix()
 
   val FiFO = Vec(Stream(Bits(320 bits)), 4)
+  val Stream0 = Stream(Bits(320 bits))
 
   for (i <- 0 until 4) {
-    io.source(i).queue(1024) >> FiFO(i)
+    io.source(i).queue(16) >> FiFO(i)
   }
 
-  val Stream0 = StreamArbiterFactory.roundRobin.noLock.onArgs(FiFO(3), FiFO(2), FiFO(1), FiFO(0))
+  StreamArbiterFactory.roundRobin.noLock.onArgs(FiFO(3), FiFO(2), FiFO(1), FiFO(0)) >-> Stream0
 
   StreamWidthAdapter(Stream0, io.Sink)
+
 }
 
 
@@ -182,7 +184,7 @@ class ADPackArbiter() extends Component {
 
 
 object DiffFsTop extends App {
-  SpinalVerilog(new PkgHeadTail())
+  SpinalVerilog(new Arbiter())
 }
 
 
