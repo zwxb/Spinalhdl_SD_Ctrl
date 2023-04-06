@@ -1,7 +1,11 @@
 import spinal.core._
 import spinal.lib._
 
-/** 打包模块 加头/尾  stream位宽：256 -> 320 */
+/** 打包模块 加头/尾
+ *
+ * 封包方式为 包头(1) + 包身(8) + 包尾(1)
+ *
+ * stream位宽：256 -> 320 */
 class PkgHeadTail() extends Component {
   val io = new Bundle {
 
@@ -43,7 +47,12 @@ class PkgHeadTail() extends Component {
 
 }
 
-/** 4种不同采样率数据汇聚到FIFO，FIFO每8点拼接为1小包 */
+/** AD采集数据通过降采样方案产生4种不同采样率数据汇聚到FIFO，FIFO每8点拼接为1小包
+ *
+ * 封包数据规则为 ：
+ *
+ * 根据数据有效位来标记封包后的数据有效长度 其他无效数据为缓冲数据解包后丢弃
+ * */
 class ADDiffFsData() extends Component {
   val io = new Bundle {
     val source = Vec(slave(Flow(Bits(32 bits))), 4)
@@ -114,7 +123,13 @@ class ADDiffFsData() extends Component {
 
 }
 
-/** 轮询仲裁不同采样率Fifo模块 Stream: 4 Mux 1 数据位宽：320-> 32 */
+/** 仲裁不同采样率Fifo模块
+ *
+ * 仲裁机制为 roundRobin
+ *
+ * 仲裁完成后将stream数据进行位宽转换
+ *
+ * Stream: 4 Mux 1 数据位宽：320-> 32 */
 class Arbiter() extends Component {
   val io = new Bundle {
     val source = Vec(slave(Stream(Bits(320 bits))), 4)
@@ -136,7 +151,7 @@ class Arbiter() extends Component {
 
 }
 
-
+/**AD采集 筛选不同采样率数据 相同采样率数据封包*/
 class ADPackArbiter() extends Component {
   val io = new Bundle {
     val source = Vec(slave(Flow(Bits(32 bits))), 4)
@@ -183,8 +198,9 @@ class ADPackArbiter() extends Component {
 }
 
 
+
 object DiffFsTop extends App {
-  SpinalVerilog(new Arbiter())
+  SpinalVerilog(new ADPackArbiter())
 }
 
 

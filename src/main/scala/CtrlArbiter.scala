@@ -72,8 +72,11 @@ import spinal.lib.fsm._
 //}
 
 /** MCASP接收后的数据解析
+ *
  * 根据数据包头信息PType 将数据分类到4种不同FIFO
+ *
  * 根据数据包头信息PVaildNum 将无效数据丢弃
+ *
  * */
 case class UnpackSmall2() extends Component {
   val io = new Bundle {
@@ -82,12 +85,13 @@ case class UnpackSmall2() extends Component {
   }
 
   noIoPrefix()
+
   val FIFO1 = Stream(Bits(320 bits))
   val FIFO1Fork = Vec(Stream(Bits(320 bits)), 4)
   val FIFO1ForkThrow = Vec(Stream(Bits(320 bits)), 4)
   val FIFO2 = Vec(Stream(Bits(32 bits)), 4)
-  val PType = Vec(UInt(4 bits), 4)
-  val PValidNum = Vec(UInt(6 bits), 4)
+  val PType = Vec(Reg(UInt(4 bits)), 4)
+  val PValidNum = Vec(Reg(UInt(6 bits)), 4)
   val PCnt = Vec(Reg(UInt(6 bits)), 4)
 
   PValidNum.map(_ := 0)
@@ -95,6 +99,7 @@ case class UnpackSmall2() extends Component {
 
   io.Source.queue(4) >> FIFO1
 
+  //将数据复制4份，将每份中的相同类型的数据汇总
   FIFO1Fork <> StreamFork(FIFO1, 4, true)
 
   //获取当前数据包类型
@@ -106,7 +111,7 @@ case class UnpackSmall2() extends Component {
   //根据数据包类型判断是否与当前FIFO类型匹配，不匹配舍弃
   //实际是将不同类型数据包进行分类，将同类型数据包存入到相同FIFO中
   for (i <- 0 until (4)) {
-    FIFO1Fork(i).queue(2).throwWhen(i =/= PType(i)) >-> FIFO1ForkThrow(i)
+    FIFO1Fork(i).queue(4).throwWhen(i =/= PType(i)) >-> FIFO1ForkThrow(i)
   }
 
   //获取同种类型数据包种的数据有效个数
@@ -136,10 +141,12 @@ case class UnpackSmall2() extends Component {
 }
 
 /** 分类将会产生四种采样率的FIFO，且每个MCASP对应4种FIFO
+ *
  * 仲裁所有MCASP对应的相同采样率的FIFO
+ *
  * 仲裁方法按照sequentialOrder来实现
  * */
-class DiffFsArbiter() extends Component {
+case class DiffFsArbiter() extends Component {
   val io = new Bundle {
     val Soure = Vec(slave(Stream(Bits(32 bits))), 4)
     val Sink = master(Stream(Bits(32 bits)))
@@ -158,12 +165,16 @@ class DiffFsArbiter() extends Component {
 }
 
 /** 同种采样率数据进行封包处理
+ *
  * 头 长度固定 32个点
+ *
  * 尾 长度固定 32个点
+ *
  * 身 长度可调点数
+ *
  * 同时包尾包含了当前传输包种的外触发点位置和外触发相位
  * */
-class BigPack() extends Component {
+case class BigPack() extends Component {
   val io = new Bundle {
     val Source = slave(Stream(Bits(32 bits)))
     val PLength = in Bits (32 bits)
