@@ -89,13 +89,15 @@ case class UnpackSmall2() extends Component {
   val FIFO1 = Stream(Bits(320 bits))
   val FIFO1Fork = Vec(Stream(Bits(320 bits)), 4)
   val FIFO1ForkThrow = Vec(Stream(Bits(320 bits)), 4)
+  val FIFO1End = Vec(Stream(Bits(320 bits)), 4)
   val FIFO2 = Vec(Stream(Bits(32 bits)), 4)
   val PType = Vec(Reg(UInt(4 bits)), 4)
-  val PValidNum = Vec(Reg(UInt(6 bits)), 4)
+  val PValidNum = Vec(Reg(UInt(4 bits)), 4)
   val PCnt = Vec(Reg(UInt(6 bits)), 4)
+  val IsBlack = Vec(Bool(), 4)
 
-  PValidNum.map(_ := 0)
-  PType.map(_ := 0)
+  //  PValidNum.map(_ := 0)
+  //  PType.map(_ := 0)
 
   io.Source.queue(4) >> FIFO1
 
@@ -105,7 +107,7 @@ case class UnpackSmall2() extends Component {
   //获取当前数据包类型
   for (i <- 0 until (4)) {
     when(FIFO1Fork(i).fire === True) {
-      PType(i) := FIFO1Fork(i).payload.subdivideIn(32 bits)(0)(31 downto 28).asUInt
+      PType(i) := FIFO1Fork(i).payload.subdivideIn(32 bits)(9)(31 downto 28).asUInt
     }
   }
   //根据数据包类型判断是否与当前FIFO类型匹配，不匹配舍弃
@@ -118,24 +120,33 @@ case class UnpackSmall2() extends Component {
   for (i <- 0 until (4)) {
     when(FIFO1ForkThrow(i).fire === True) {
       PCnt(i) := 0
-      PValidNum(i) := FIFO1ForkThrow(i).payload.subdivideIn(32 bits)(0)(15 downto (10)).asUInt
+      PValidNum(i) := FIFO1ForkThrow(i).payload.subdivideIn(32 bits)(9)(15 downto (12)).asUInt
     }
   }
 
+  for (i <- 0 until (4)) {
+    FIFO1ForkThrow(i).queue(4) >> FIFO1End(i)
+  }
+
+
   //转换数据位宽 320 bits -> 32 bits
   for (i <- 0 until (4)) {
-    StreamWidthAdapter(FIFO1ForkThrow(i), FIFO2(i))
+    StreamWidthAdapter(FIFO1End(i), FIFO2(i))
   }
 
   //有效数据计数
   for (i <- 0 until (4)) {
-    when(FIFO2(i).valid === True) {
+    when(FIFO2(i).fire === True) {
       PCnt(i) := PCnt(i) + 1
     }
   }
+
+  for (i <- 0 until (4)) {
+    IsBlack(i) := (PCnt(i) === 9) || (PCnt(i) === 0) || (PCnt(i) > PValidNum(i)) && (FIFO2(i).valid === True)
+  }
   //丢弃无效数据
   for (i <- 0 until (4)) {
-    FIFO2(i).queue(16).throwWhen(PCnt(i) > PValidNum(i)) >> io.Sink(i)
+    FIFO2(i).throwWhen(IsBlack(i)) >> io.Sink(i)
   }
 
 }
