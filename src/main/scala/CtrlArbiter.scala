@@ -2,6 +2,8 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.fsm._
 
+import scala.tools.nsc.io
+
 //case class TestStremFork() extends Component {
 //  val io = new Bundle {
 //    val Source = slave(Stream(Bits(32 bits)))
@@ -96,8 +98,9 @@ case class UnpackSmall2() extends Component {
   val PCnt = Vec(Reg(UInt(6 bits)), 4)
   val IsBlack = Vec(Bool(), 4)
 
-  //  PValidNum.map(_ := 0)
-  //  PType.map(_ := 0)
+  PValidNum.foreach(_.init(0))
+  PType.foreach(_.init(0))
+  PCnt.foreach(_.init(0))
 
   io.Source.queue(4) >> FIFO1
 
@@ -161,7 +164,10 @@ case class DiffFsArbiter() extends Component {
   val io = new Bundle {
     val Soure = Vec(slave(Stream(Bits(32 bits))), 4)
     val Sink = master(Stream(Bits(32 bits)))
+    val SinkEn = in Bits (4 bits)
   }
+
+  noIoPrefix()
 
   val FIFO = Vec(Stream(Bits(32 bits)), 4)
 
@@ -169,7 +175,29 @@ case class DiffFsArbiter() extends Component {
     io.Soure(i).queue(4) >> FIFO(i)
   }
 
-  val Stream0 = StreamArbiterFactory().roundRobin.sequentialOrder.on(FIFO)
+  //重新构建sequentialOrder函数
+  val arbiter = StreamArbiterFactory()
+  arbiter.arbitrationLogic = core => {
+    new Area {
+
+      import core._
+
+      val ValidMask = Bits(4 bits)
+
+      ValidMask := DiffFsArbiter.this.io.SinkEn.pull()
+
+      val counter = Counter(core.portCount - 2, core.io.output.fire).resize(2)
+
+      for (i <- 0 to core.portCount - 1) {
+        maskProposal(i) := False
+      }
+      when(ValidMask(counter) === True) {
+        maskProposal(counter) := True
+      }
+    }
+  }
+
+  val Stream0 = arbiter.on(FIFO)
 
   Stream0 >-> io.Sink
 
@@ -202,8 +230,20 @@ case class BigPack() extends Component {
   io.Source.ready := True
   io.Sink.valid := False
   io.Sink.payload := 0
-  PHead.map(_ := 0)
-  PTail.map(_ := 0)
+
+
+  for (i <- 1 until (31)) {
+    PHead(i) := 0
+  }
+  for (i <- 1 until (31)) {
+    PTail(i) := 0
+  }
+
+  PHead(0) := B"32'xAABBCCDD"
+  PHead(31) := B"32'x12345678"
+
+  PTail(0) := B"32'x87654321"
+  PTail(31) := B"32'xDDCCBBAA"
 
   //  io.Source.queue(16) >> FIFO
 
@@ -213,10 +253,12 @@ case class BigPack() extends Component {
     val BodyCnt = Reg(UInt(32 bits)) init (0)
     val TailCnt = Reg(UInt(6 bits)) init (0)
 
+
     val SIdle: State = new State with EntryPoint {
       whenIsActive {
         HeadCnt := 0
         BodyCnt := 0
+        TailCnt := 0
         goto(STxHead)
       }
     }
@@ -234,7 +276,7 @@ case class BigPack() extends Component {
     }
     val STxBody: State = new State() {
       whenIsActive {
-        when(io.Sink.ready === True && BodyCnt < io.PLength.asUInt) {
+        when(io.Sink.ready === True && io.Source.valid === True && BodyCnt < io.PLength.asUInt) {
           io.Sink.valid := io.Source.valid
           io.Sink.payload := io.Source.payload
           BodyCnt := BodyCnt + 1
@@ -248,7 +290,7 @@ case class BigPack() extends Component {
       whenIsActive {
         when(io.Sink.ready === True && TailCnt < 32) {
           io.Sink.valid := True
-          io.Sink.payload := PHead(TailCnt.resize(5))
+          io.Sink.payload := PTail(TailCnt.resize(5))
           TailCnt := TailCnt + 1
         }
         when(TailCnt === 32) {

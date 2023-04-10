@@ -94,6 +94,8 @@ object TestArbiter {
 
       dut.clockDomain.forkStimulus(10000)
 
+      dut.io.Sink.ready #= true
+
       for (i <- 0 until 20) {
         dut.clockDomain.waitSampling()
       }
