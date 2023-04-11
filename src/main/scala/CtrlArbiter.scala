@@ -184,18 +184,31 @@ case class DiffFsArbiter() extends Component {
 
       val ValidMask = Bits(4 bits)
 
+      val State = (Bool())
+
       ValidMask := DiffFsArbiter.this.io.SinkEn.pull()
 
-      val counter = Counter(core.portCount - 2, core.io.output.fire).resize(2)
+      val counter = Counter(core.portCount)
+
+      State := False
 
       for (i <- 0 to core.portCount - 1) {
         maskProposal(i) := False
       }
-      when(ValidMask(counter) === True) {
-        maskProposal(counter) := True
+
+      when(ValidMask(counter.value)) {
+        State := True
+        when(core.io.output.fire) {
+          counter.increment()
+        }
+      } otherwise {
+        counter.increment()
+        State := False
       }
+      maskProposal(counter.value) := State
     }
   }
+
 
   val Stream0 = arbiter.on(FIFO)
 

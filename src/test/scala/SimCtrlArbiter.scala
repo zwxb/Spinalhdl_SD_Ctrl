@@ -89,7 +89,7 @@ object TestArbiter56 {
         dut.io.Soure(i).valid #= false
       }
       dut.io.Sink.ready #= true
-      dut.io.SinkEn #= 6
+      dut.io.SinkEn #= 14
 
       for (i <- 0 until 128) {
         dut.clockDomain.waitSampling()
@@ -103,7 +103,7 @@ object TestArbiter56 {
             dut.io.Soure(i).payload #= Ncnt
             dut.clockDomain.waitSampling()
             dut.io.Soure(i).valid #= false
-//            println("now is wait start!")
+            //            println("now is wait start!")
             for (i <- 0 until (128)) {
               dut.clockDomain.waitSampling()
             }
