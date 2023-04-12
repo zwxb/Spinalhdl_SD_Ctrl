@@ -2,15 +2,7 @@
 import spinal.core._
 import spinal.core.SInt
 import spinal.core.sim._
-
 import scala.util.Random
-
-
-//def sinTable = (0 until 40).map(i => {
-//  val sinValue = Math.sin(2 * Math.PI * i / 40)
-//  S((sinValue * ((1 << 8) / 2 - 1)).toInt, 8 bits)
-//})
-
 
 object TestADPackArbiter {
   def main(args: Array[String]): Unit = {
@@ -90,7 +82,7 @@ object TestADPackArbiter {
 
 object TestArbiter {
   def main(args: Array[String]): Unit = {
-    SimConfig.withWave.compile(new Arbiter()).doSim { dut =>
+    SimConfig.withWave.compile(new DiffFsArbiter()).doSim { dut =>
 
       dut.clockDomain.forkStimulus(10000)
 

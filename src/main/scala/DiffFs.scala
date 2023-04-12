@@ -1,7 +1,8 @@
 import spinal.core._
 import spinal.lib._
 
-/** 打包模块 加头/尾
+/**
+ * 打包模块 加头/尾
  *
  * 封包方式为 包头(1) + 包身(8) + 包尾(1)
  *
@@ -47,7 +48,10 @@ class PkgHeadTail() extends Component {
 
 }
 
-/** AD采集数据通过降采样方案产生4种不同采样率数据汇聚到FIFO，FIFO每8点拼接为1小包
+/**
+ * AD采集数据通过降采样方案产生4种不同采样率数据汇聚到FIFO，
+ *
+ * FIFO每8点拼接为1小包
  *
  * 封包数据规则为 ：
  *
@@ -68,12 +72,12 @@ class ADDiffFsData() extends Component {
   val BData = Vec(Reg(Bits(32 bits)), 4)
   val Pdata = Vec((Flow(Bits(256 bits))), 4)
 
+  //每种采样率使用特定的行缓冲器
   val ADBuffer0 = History(BData(0), 8, BValid(0), B(0, 32 bits))
   val ADBuffer1 = History(BData(1), 8, BValid(1), B(0, 32 bits))
   val ADBuffer2 = History(BData(2), 8, BValid(2), B(0, 32 bits))
   val ADBuffer3 = History(BData(3), 8, BValid(3), B(0, 32 bits))
-
-
+  // 行缓冲器转为Vec 方便后续处理
   val ADBuffer = Vec(ADBuffer0, ADBuffer1, ADBuffer2, ADBuffer3)
 
   //初始化
@@ -84,15 +88,16 @@ class ADDiffFsData() extends Component {
   for (i <- 0 until (4)) {
     Pdata(i).setIdle()
   }
-
+  //行缓冲器移位使能信号
   for (i <- 0 until 4) {
     BValid(i) := io.source(i).valid
   }
-
+  //行缓冲器移位数据
   for (i <- 0 until (4)) {
     BData(i) := io.source(i).payload
   }
 
+  //计算每个行缓冲器的有效数据个数
   for (i <- 0 until (4)) {
     when((xCnt(i) >= io.PValidNum(i) + 1) && io.source(i).valid === False) {
       xCnt(i) := 0
@@ -130,7 +135,7 @@ class ADDiffFsData() extends Component {
  * 仲裁完成后将stream数据进行位宽转换
  *
  * Stream: 4 Mux 1 数据位宽：320-> 32 */
-class Arbiter() extends Component {
+class DiffFsArbiter() extends Component {
   val io = new Bundle {
     val source = Vec(slave(Stream(Bits(320 bits))), 4)
     val Sink = master(Stream(Bits(32 bits)))
@@ -151,7 +156,7 @@ class Arbiter() extends Component {
 
 }
 
-/**AD采集 筛选不同采样率数据 相同采样率数据封包*/
+/** AD采集 筛选不同采样率数据 相同采样率数据封包 */
 class ADPackArbiter() extends Component {
   val io = new Bundle {
     val source = Vec(slave(Flow(Bits(32 bits))), 4)
@@ -175,7 +180,7 @@ class ADPackArbiter() extends Component {
 
   val ADFsData = new ADDiffFsData()
   val PKHTData = new PkgHeadTail()
-  val ArbiterData = new Arbiter()
+  val ArbiterData = new DiffFsArbiter()
 
   io.PVaildNum <> ADFsData.io.PValidNum
   io.PVaildNum <> PKHTData.io.PVaildNum
@@ -196,7 +201,6 @@ class ADPackArbiter() extends Component {
   }
   ArbiterData.io.Sink >-> io.sink
 }
-
 
 
 object DiffFsTop extends App {
