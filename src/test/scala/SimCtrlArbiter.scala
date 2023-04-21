@@ -5,16 +5,13 @@ import scala.util.Random
 
 object TestArbiter12 {
   def main(args: Array[String]): Unit = {
-    SimConfig.withWave.compile(new SmallUnpack(8)).doSim { dut =>
+    SimConfig.withWave.compile(new SmallUnpack(4)).doSim { dut =>
 
       dut.clockDomain.forkStimulus(10000)
 
-      for (j <- 0 until (8)) {
-        for (i <- 0 until (4)) {
-          dut.io.Sink(j)(i).ready #= true
-        }
+      for (i <- 0 until (4)) {
+        dut.io.Sink(i).ready #= true
       }
-
 
       for (i <- 0 until 20) {
         dut.clockDomain.waitSampling()
@@ -22,18 +19,13 @@ object TestArbiter12 {
 
       val pushThread = fork {
 
-        for (i <- 0 until (8)) {
-          dut.io.Source(i).valid #= false
-        }
-
+        dut.io.Source.valid #= false
 
         for (x <- 0 until (100)) {
-          for (i <- 0 until (8)) {
-            dut.io.Source(i).valid #= true
-            dut.io.Source(i).payload #= BigInt("32348678111111112222222233333333444444445555555566666666777777778888888812345678", 16)
-            dut.clockDomain.waitSampling()
-            dut.io.Source(i).valid #= false
-          }
+          dut.io.Source.valid #= true
+          dut.io.Source.payload #= BigInt("32348678111111112222222233333333444444445555555566666666777777778888888812345678", 16)
+          dut.clockDomain.waitSampling()
+          dut.io.Source.valid #= false
 
           for (i <- 0 until (40)) {
             dut.clockDomain.waitSampling()
