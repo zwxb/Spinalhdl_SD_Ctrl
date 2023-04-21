@@ -143,23 +143,61 @@ class DiffFsArbiter() extends Component {
 
   noIoPrefix()
 
-  val FiFO = Vec(Stream(Bits(320 bits)), 4)
+  val FiFO = Vec(Stream(Bits(320 bits)), 4).addAttribute("ram_style ","distributed")
+
   val Stream0 = Stream(Bits(320 bits))
 
   for (i <- 0 until 4) {
     io.source(i).queue(16) >> FiFO(i)
   }
 
-  StreamArbiterFactory.roundRobin.noLock.onArgs(FiFO(3), FiFO(2), FiFO(1), FiFO(0)) >-> Stream0
+  StreamArbiterFactory.roundRobin.noLock.on(FiFO) >-> Stream0
 
   StreamWidthAdapter(Stream0, io.Sink)
 
 }
 
+
+case class SelfCnt() extends Component {
+  val io = new Bundle {
+    val Sink = Vec(master(Flow(Bits(32 bits))), 4)
+  }
+
+  val Cnt = CounterFreeRun(40000)
+
+  val TestCnt = Vec(Reg(UInt(32 bits)), 4)
+
+  noIoPrefix()
+
+  io.Sink.foreach(_.valid := False)
+  io.Sink.foreach(_.payload := 0)
+  TestCnt.foreach(_.init(0))
+
+  when(Cnt.value === 10000) {
+    io.Sink(0).valid := True
+    io.Sink(0).payload := TestCnt(0).asBits
+    TestCnt(0) := TestCnt(0) + 1
+  } elsewhen (Cnt.value === 20000) {
+    io.Sink(1).valid := True
+    io.Sink(1).payload := TestCnt(1).asBits
+    TestCnt(1) := TestCnt(1) + 1
+  } elsewhen (Cnt.value === 30000) {
+    io.Sink(2).valid := True
+    io.Sink(2).payload := TestCnt(2).asBits
+    TestCnt(2) := TestCnt(2) + 1
+  } elsewhen (Cnt.value === 40000) {
+    io.Sink(3).valid := True
+    io.Sink(3).payload := TestCnt(3).asBits
+    TestCnt(3) := TestCnt(3) + 1
+  }
+
+}
+
+
 /** AD采集 筛选不同采样率数据 相同采样率数据封包 */
 class ADPackArbiter() extends Component {
   val io = new Bundle {
-    val source = Vec(slave(Flow(Bits(32 bits))), 4)
+    //    val source = Vec(slave(Flow(Bits(32 bits))), 4)
     val sink = master(Stream(Bits(32 bits)))
 
     val PVaildNum = in Vec(UInt(6 bits), 4)
@@ -181,6 +219,7 @@ class ADPackArbiter() extends Component {
   val ADFsData = new ADDiffFsData()
   val PKHTData = new PkgHeadTail()
   val ArbiterData = new DiffFsArbiter()
+  val iSelfCnt = new SelfCnt()
 
   io.PVaildNum <> ADFsData.io.PValidNum
   io.PVaildNum <> PKHTData.io.PVaildNum
@@ -191,7 +230,7 @@ class ADPackArbiter() extends Component {
   io.PExtTriCnt <> PKHTData.io.PExtTriCnt
 
   for (i <- 0 until (4)) {
-    io.source(i) >-> ADFsData.io.source(i)
+    iSelfCnt.io.Sink(i) >-> ADFsData.io.source(i)
   }
   for (i <- 0 until (4)) {
     ADFsData.io.sink(i) >-> PKHTData.io.in8(i)
@@ -207,5 +246,8 @@ object DiffFsTop extends App {
   SpinalVerilog(new ADPackArbiter())
 }
 
+object SelfCntTop extends App {
+  SpinalVerilog(new SelfCnt())
+}
 
 
