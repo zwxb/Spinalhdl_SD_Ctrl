@@ -9,21 +9,16 @@ import spinal.lib.fsm._
  *
  * 位宽转换:32bits -> 320 bits
  * */
-case class Width32to320(SlotNum: Int) extends Component {
+case class Width32to320() extends Component {
   val io = new Bundle {
-    val Source = Vec(slave(Stream(Bits(32 bits))), SlotNum)
-    val Sink = Vec(master(Stream(Bits(320 bits))), SlotNum)
+    val Source = slave(Stream(Bits(32 bits)))
+    val Sink = master(Stream(Bits(320 bits)))
   }
-  val FIFO = Vec(Stream(Bits(32 bits)), SlotNum)
+  val FIFO = Stream(Bits(32 bits))
 
-  for (i <- 0 until (SlotNum)) {
-    io.Source(i).queue(16) >> FIFO(i)
-  }
+  io.Source >> FIFO
 
-  for (i <- 0 until (SlotNum)) {
-    StreamWidthAdapter(FIFO(i), io.Sink(i))
-  }
-
+  StreamWidthAdapter(FIFO, io.Sink)
 }
 
 /**
@@ -36,101 +31,82 @@ case class Width32to320(SlotNum: Int) extends Component {
  * 根据数据包头信息PVaildNum 将无效数据丢弃
  *
  * */
-case class SmallUnpack(SlotNum: Int) extends Component {
+case class SmallUnpack(FsNum: Int) extends Component {
   val io = new Bundle {
-    val Source = Vec(slave(Stream(Bits(320 bits))), SlotNum)
-    val Sink = Vec(Vec(master(Stream(Bits(32 bits))), 4), SlotNum)
+    val Source = slave(Stream(Bits(320 bits)))
+    val Sink = Vec(master(Stream(Bits(32 bits))), FsNum)
   }
 
   noIoPrefix()
 
-  val FIFO1 = Vec(Stream(Bits(320 bits)), SlotNum)
-  val FIFO1Fork = Vec(Vec(Stream(Bits(320 bits)), 4), SlotNum)
-  val FIFO1ForkThrow = Vec(Vec(Stream(Bits(320 bits)), 4), SlotNum)
-  val FIFO1End = Vec(Vec(Stream(Bits(320 bits)), 4), SlotNum)
-  val FIFO2 = Vec(Vec(Stream(Bits(32 bits)), 4), SlotNum)
-  val PType = Vec(Vec(Reg(UInt(4 bits)), 4), SlotNum)
-  val PValidNum = Vec(Vec(Reg(UInt(4 bits)), 4), SlotNum)
-  val PCnt = Vec(Vec(Reg(UInt(6 bits)), 4), SlotNum)
-  val IsBlack = Vec(Vec(Bool(), 4), SlotNum)
+  val FIFO1 = Stream(Bits(320 bits))
+  val FIFO1Fork = Vec(Stream(Bits(320 bits)), FsNum)
+  val FIFO1ForkThrow = Vec(Stream(Bits(320 bits)), FsNum)
+  val FIFO1End = Vec(Stream(Bits(320 bits)), FsNum)
+  val FIFO2 = Vec(Stream(Bits(32 bits)), FsNum)
+  val PType = Vec(Reg(UInt(4 bits)), FsNum)
+  val PValidNum = Vec(Reg(UInt(4 bits)), FsNum)
+  val PCnt = Vec(Reg(UInt(6 bits)), FsNum)
+  val IsBlack = Vec(Bool(), FsNum)
 
   PValidNum.foreach(_.init(0))
   PType.foreach(_.init(0))
   PCnt.foreach(_.init(0))
 
-  for (i <- 0 until (SlotNum)) {
-    io.Source(i).queue(4) >> FIFO1(i)
-  }
+  io.Source >> FIFO1
 
   //将数据复制4份，将每份中的相同类型的数据汇总
-  for (i <- 0 until (SlotNum)) {
-    FIFO1Fork(i) <> StreamFork(FIFO1(i), 4, true)
-  }
+  FIFO1Fork <> StreamFork(FIFO1, FsNum, true)
 
   //获取当前数据包类型
-  for (j <- 0 until (SlotNum)) {
-    for (i <- 0 until (4)) {
-      when(FIFO1Fork(j)(i).fire === True) {
-        PType(j)(i) := FIFO1Fork(j)(i).payload.subdivideIn(32 bits)(9)(31 downto 28).asUInt
-      }
+  for (i <- 0 until (FsNum)) {
+    when(FIFO1Fork(i).fire === True) {
+      PType(i) := FIFO1Fork(i).payload.subdivideIn(32 bits)(9)(31 downto 28).asUInt
     }
   }
 
   //根据数据包类型判断是否与当前FIFO类型匹配，不匹配舍弃
   //实际是将不同类型数据包进行分类，将同类型数据包存入到相同FIFO中
-  for (j <- 0 until (SlotNum)) {
-    for (i <- 0 until (4)) {
-      FIFO1Fork(j)(i).queue(4).throwWhen(i =/= PType(j)(i)) >-> FIFO1ForkThrow(j)(i)
-    }
+
+  for (i <- 0 until (FsNum)) {
+    FIFO1Fork(i).queue(2).throwWhen(i =/= PType(i)) >-> FIFO1ForkThrow(i)
   }
 
 
   //获取同种类型数据包种的数据有效个数
-  for (j <- 0 until (SlotNum)) {
-    for (i <- 0 until (4)) {
-      when(FIFO1ForkThrow(j)(i).fire === True) {
-        PCnt(j)(i) := 0
-        PValidNum(j)(i) := FIFO1ForkThrow(j)(i).payload.subdivideIn(32 bits)(9)(15 downto (12)).asUInt
-      }
+  for (i <- 0 until (FsNum)) {
+    when(FIFO1ForkThrow(i).fire === True) {
+      PCnt(i) := 0
+      PValidNum(i) := FIFO1ForkThrow(i).payload.subdivideIn(32 bits)(9)(15 downto (12)).asUInt
     }
   }
 
-  for (j <- 0 until (SlotNum)) {
-    for (i <- 0 until (4)) {
-      FIFO1ForkThrow(j)(i).queue(4) >> FIFO1End(j)(i)
-    }
+  for (i <- 0 until (FsNum)) {
+    FIFO1ForkThrow(i) >> FIFO1End(i)
   }
-
 
   //转换数据位宽 320 bits -> 32 bits
-  for (j <- 0 until (SlotNum)) {
-    for (i <- 0 until (4)) {
-      StreamWidthAdapter(FIFO1End(j)(i), FIFO2(j)(i))
-    }
+  for (i <- 0 until (FsNum)) {
+    StreamWidthAdapter(FIFO1End(i), FIFO2(i))
   }
 
 
   //有效数据计数
-  for (j <- 0 until (SlotNum)) {
-    for (i <- 0 until (4)) {
-      when(FIFO2(j)(i).fire === True) {
-        PCnt(j)(i) := PCnt(j)(i) + 1
-      }
+  for (i <- 0 until (FsNum)) {
+    when(FIFO2(i).fire === True) {
+      PCnt(i) := PCnt(i) + 1
     }
   }
 
-  for (j <- 0 until (SlotNum)) {
-    for (i <- 0 until (4)) {
-      IsBlack(j)(i) := (PCnt(j)(i) === 9) || (PCnt(j)(i) === 0) || (PCnt(j)(i) > PValidNum(j)(i)) && (FIFO2(j)(i).valid
-        === True)
-    }
+  for (i <- 0 until (FsNum)) {
+    IsBlack(i) := (PCnt(i) === 9) || (PCnt(i) === 0) || (PCnt(i) > PValidNum(i)) && (FIFO2(i).valid === True)
   }
+
   //丢弃无效数据
-  for (j <- 0 until (SlotNum)) {
-    for (i <- 0 until (4)) {
-      FIFO2(j)(i).throwWhen(IsBlack(j)(i)) >> io.Sink(j)(i)
-    }
+  for (i <- 0 until (FsNum)) {
+    FIFO2(i).throwWhen(IsBlack(i)) >> io.Sink(i)
   }
+
 
 }
 
@@ -155,7 +131,7 @@ case class SameFsArbiter(SlotNum: Int) extends Component {
   val FIFO = Vec(Stream(Bits(32 bits)), SlotNum)
 
   for (i <- 0 until SlotNum) {
-    io.Soure(i).queue(4) >> FIFO(i)
+    io.Soure(i).queue(2) >> FIFO(i)
   }
 
   //重新构建sequentialOrder函数
@@ -280,6 +256,7 @@ case class BigPack() extends Component {
           io.Sink.valid := io.Source.valid
           io.Sink.payload := io.Source.payload
           BodyCnt := BodyCnt + 1
+
         }
         when(BodyCnt === io.PLength.asUInt) {
           goto(STxTail)
@@ -314,75 +291,60 @@ case class BigPack() extends Component {
  *
  * 其中主控兼容的Slot数目可以随意配置
  * */
-case class CtrlTop(SlotNum: Int) extends Component {
+case class CtrlTop(SlotNum: Int, FsNum: Int) extends Component {
   val io = new Bundle {
     val Source = Vec(slave(Stream(Bits(32 bits))), SlotNum)
-    val Sink = Vec(master(Stream(Bits(32 bits))), 4)
-    val SinkEn = in Vec(Bits(SlotNum bits), 4)
-    val PLength = in Vec(Bits(32 bits), 4)
+    val Sink = Vec(master(Stream(Bits(32 bits))), FsNum)
+    val SinkEn = in Vec(Bits(SlotNum bits), FsNum)
+    val PLength = in Vec(Bits(32 bits), FsNum)
   }
 
+  val iWidth32to320 = Array.fill(SlotNum)(new Width32to320())
+  val iSmallUnpack = Array.fill(SlotNum)(new SmallUnpack(FsNum))
 
-  val iWidth32to320 = new Width32to320(SlotNum)
-  val iSmallUnpack = new SmallUnpack(SlotNum)
+  val iSameFsArbiter = Array.fill(FsNum)(new SameFsArbiter(SlotNum))
 
-  val iSameFsArbiter1 = new SameFsArbiter(SlotNum)
-  val iSameFsArbiter2 = new SameFsArbiter(SlotNum)
-  val iSameFsArbiter3 = new SameFsArbiter(SlotNum)
-  val iSameFsArbiter4 = new SameFsArbiter(SlotNum)
-
-  val iBigPack1 = new BigPack()
-  val iBigPack2 = new BigPack()
-  val iBigPack3 = new BigPack()
-  val iBigPack4 = new BigPack()
+  val iBigPack = Array.fill(FsNum)(new BigPack())
 
 
-  iSameFsArbiter1.io.SinkEn := io.SinkEn(0)
-  iSameFsArbiter2.io.SinkEn := io.SinkEn(1)
-  iSameFsArbiter3.io.SinkEn := io.SinkEn(2)
-  iSameFsArbiter4.io.SinkEn := io.SinkEn(3)
-
-  iBigPack1.io.PLength := io.PLength(0)
-  iBigPack2.io.PLength := io.PLength(1)
-  iBigPack3.io.PLength := io.PLength(2)
-  iBigPack4.io.PLength := io.PLength(3)
+  for (i <- 0 until (FsNum)) {
+    iSameFsArbiter(i).io.SinkEn := io.SinkEn(i)
+    iBigPack(i).io.PLength := io.PLength(i)
+  }
 
   //根据主控板卡Slot数目 复制生成相同数目位宽转换模块
   for (i <- 0 until (SlotNum)) {
-    io.Source(i) >-> iWidth32to320.io.Source(i)
+    io.Source(i) >-> iWidth32to320(i).io.Source
   }
   //根据主控板卡Slot数目 复制生成相同数目小包解包模块
   for (i <- 0 until (SlotNum)) {
-    iWidth32to320.io.Sink(i) >-> iSmallUnpack.io.Source(i)
+    iWidth32to320(i).io.Sink >-> iSmallUnpack(i).io.Source
   }
   //仲裁所有slot中相同位置FIFO
   for (j <- 0 until (SlotNum)) {
-    iSmallUnpack.io.Sink(j)(0) >-> iSameFsArbiter1.io.Soure(j) //采样率1的FIFO仲裁
-    iSmallUnpack.io.Sink(j)(1) >-> iSameFsArbiter2.io.Soure(j) //采样率2的FIFO仲裁
-    iSmallUnpack.io.Sink(j)(2) >-> iSameFsArbiter3.io.Soure(j) //采样率3的FIFO仲裁
-    iSmallUnpack.io.Sink(j)(3) >-> iSameFsArbiter4.io.Soure(j) //采样率4的FIFO仲裁
+    for (i <- 0 until (FsNum)) {
+      iSmallUnpack(j).io.Sink(i) >-> iSameFsArbiter(i).io.Soure(j) //采样率1的FIFO仲裁
+    }
   }
   //所有汇聚数据最终以4种不同包传输到ARM端
-  iSameFsArbiter1.io.Sink >-> iBigPack1.io.Source //采样率1的打包
-  iSameFsArbiter2.io.Sink >-> iBigPack2.io.Source //采样率2的打包
-  iSameFsArbiter3.io.Sink >-> iBigPack3.io.Source //采样率3的打包
-  iSameFsArbiter4.io.Sink >-> iBigPack4.io.Source //采样率4的打包
+  for (i <- 0 until (FsNum)) {
+    iSameFsArbiter(i).io.Sink >-> iBigPack(i).io.Source
+  }
 
-  iBigPack1.io.Sink >> io.Sink(0)
-  iBigPack2.io.Sink >> io.Sink(1)
-  iBigPack3.io.Sink >> io.Sink(2)
-  iBigPack4.io.Sink >> io.Sink(3)
+  for (i <- 0 until (FsNum)) {
+    iBigPack(i).io.Sink >> io.Sink(i)
+  }
 
 
 }
 
 
 object With32to320Top extends App {
-  SpinalVerilog(new Width32to320(8))
+  SpinalVerilog(new Width32to320())
 }
 
 object UnpackTop extends App {
-  SpinalVerilog(new SmallUnpack(16))
+  SpinalVerilog(new SmallUnpack(4))
 }
 
 object DiffFsArbiterTop extends App {
@@ -394,5 +356,5 @@ object BigPackTop extends App {
 }
 
 object CtrlTop extends App {
-  SpinalVerilog(new CtrlTop(8))
+  SpinalVerilog(new CtrlTop(12, 3))
 }
