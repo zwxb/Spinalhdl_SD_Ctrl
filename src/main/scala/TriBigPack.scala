@@ -18,13 +18,12 @@ case class TriggerCheck() extends Component {
   io.FliterEt := ExtOut
 
 
-  when(io.Start === True && ExtFF.asBits.resize(32) === 1 && io.ExtType === 1) {
+  when(io.Start === True && ExtFF.asBits.resize(32) === 1 && io.ExtType === 1 && ExtOut === False) {
     ExtOut := True
-  } elsewhen (io.Start === True && ExtFF.asBits.resize(32) === B"32'xFFFFFFFE" && io.ExtType === 0) {
+  } elsewhen (io.Start === True && ExtFF.asBits.resize(32) === B"32'xFFFFFFFE" && io.ExtType === 0 && ExtOut ===
+    False) {
     ExtOut := True
-  } elsewhen (io.ClearExt.rise()) {
-    ExtOut := False
-  } elsewhen (io.Start === False) {
+  } otherwise {
     ExtOut := False
   }
 
@@ -60,10 +59,12 @@ case class TriBigPack() extends Component {
   val PHead = Vec(Bits(32 bits), 32)
   val PTail = Vec(Bits(32 bits), 32)
 
+  noIoPrefix()
+
   io.Source.ready := True
   io.Sink.valid := False
   io.Sink.payload := 0
-  io.ClearTri := TriClearReg
+  io.ClearTri := Delay(TriClearReg, 16)
 
 
   for (i <- 1 until (31)) {
@@ -82,7 +83,6 @@ case class TriBigPack() extends Component {
   //  io.Source.queue(16) >> FIFO
 
   val PackTxFsm = new StateMachine {
-
 
     val SIdle: State = new State with EntryPoint {
       whenIsActive {
@@ -119,14 +119,14 @@ case class TriBigPack() extends Component {
             RepeatCnt := 0
             TriCnt := TriCnt + 1
           }
-          when(io.PTrigger.rise()) {
-            when(io.B16Or32 === True) {
-              TriCntBak := (TriCnt >> 1).resize(32 bits)
-            } otherwise {
-              TriCntBak := TriCnt
-            }
-            TriClearReg := True
+        }
+        when(io.PTrigger.rise()) {
+          when(io.B16Or32 === True) {
+            TriCntBak := (TriCnt >> 1).resize(32 bits)
+          } otherwise {
+            TriCntBak := TriCnt
           }
+          TriClearReg := True
         }
         when(BodyCnt === io.PLength.asUInt) {
           goto(STxTail)
@@ -163,8 +163,44 @@ case class TriBigPack() extends Component {
 }
 
 
+case class TriggerPack() extends Component {
+  val io = new Bundle {
+    val Start = in Bool()
+    val Exttiger = in Bool()
+    val ExtType = in Bits (2 bits)
+    val Source = slave(Stream(Bits(32 bits)))
+    val PLength = in Bits (32 bits)
+    val ChEN = in UInt (32 bits)
+    val B16Or32 = in Bool()
+    val Sink = master(Stream(Bits(32 bits)))
+  }
+
+  val iExtriger = new TriggerCheck()
+  val iTriBigPack = new TriBigPack()
+
+  iExtriger.io.Start <> io.Start
+  iExtriger.io.ClearExt <> iTriBigPack.io.ClearTri
+  iExtriger.io.Exttiger <> io.Exttiger
+  iExtriger.io.ExtType <> io.ExtType
+
+  iTriBigPack.io.Start <> io.Start
+  iTriBigPack.io.PTrigger <> iExtriger.io.FliterEt
+
+  iTriBigPack.io.Source <> io.Source
+  iTriBigPack.io.PLength <> io.PLength
+  iTriBigPack.io.ChEN <> io.ChEN
+  iTriBigPack.io.B16Or32 <> io.B16Or32
+  iTriBigPack.io.Sink <> io.Sink
+
+}
+
+
 object iiCtrlTop extends App {
   SpinalVerilog(new TriBigPack())
 }
 
+
+object TiCtrlTop extends App {
+  SpinalVerilog(new TriggerPack())
+}
 
